@@ -1,0 +1,32 @@
+* jesli nie ma sekcji .interp, to program jest uwazany za linkowany statycznie,
+    else ładuje plik w nim wymieniony (ld.linux.so2)
+
+* strtab - nazwy symboli
+* symtab - informacje o symbolach (struktura stalego rozmiaru)
+
+
+* program headers vs tablica sekcji:
+na ten pierwszy patrzy linker dyn. /kernel
+instrukcje co zrobic zeby progra odpalic
+
+, drugi nie zawiera szczegolow
+
+niektore program headersy:
+LOAD: pozcja pliku, adres docelowy
+      ile bajow   , dokąd    R -read
+
+liczby moga sie nie zgadzac - reszte dopchaj zerami (bss)
+
+
+ZADANIE:
+
+dopychanie segmentow - tricky
+format ELF - naglowki programu majac byc po naglowku elfa
+metoda - wziac najnizszy segment programu, o najnizszym adresie i rozepchac w dol
+tam wepchac nowe naglowki elfa i programu, ponoc da sie inaczej
+
+
+
+dokuemtacja od oracle - rozdzial 7 i 8
+
+przyda sie /usr/include/elf.h - tam są stale ET_REL

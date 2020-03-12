@@ -1,0 +1,15 @@
+Each `TEST` is consisted of two binaries: main ELF file `exec_TEST` and `rel_TEST` that has to be applied.
+Invoke `./test.sh` to execute all tests.
+
+
+Available tests:
+- syscall - add simple wrapper, no external symbols except `orig_start`
+- syscall2 - similar to above, slightly different relocations
+- noop - no additional code to be executed
+- call - call to function from base ELF
+- var - access to global variable in base ELF
+- static - simple test compiled with static
+- double call - `call` applied twice
+- ro - test of proper handling .rodata
+- rw - test of proper handling .data
+- def - test of proper handling non-initialized variables
