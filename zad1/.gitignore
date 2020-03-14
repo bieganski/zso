@@ -1,0 +1,5 @@
+.vscode/*
+*gdb*
+*peda*
+exec_syscall
+solution
