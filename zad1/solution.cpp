@@ -39,16 +39,33 @@ inline size_t get_sh_offset(Elf64_Ehdr hdr, size_t num) {
     return hdr.e_shoff + (num * hdr.e_shentsize);
 }
 
+std::string get_section_content(const std::string& content, Elf64_Shdr section_hdr) {
+    Elf64_Ehdr h = get_elf_header(content);
+    int begin = section_hdr.sh_offset;
+    return content.substr(begin, section_hdr.sh_size);
+}
+
 /**
- * Returns vector of all sections headers.
+ * Returns vector of all sections headers with it's names.
  **/
-std::vector<Elf64_Shdr> get_shs(Elf64_Ehdr h, std::string content) {
-    std::vector<Elf64_Shdr> res;
+std::vector<std::pair<Elf64_Shdr, std::string>> get_shs(Elf64_Ehdr h, std::string& content) {
+    std::vector<Elf64_Shdr> s_hdrs;
     for (int i = 0; i < h.e_shnum; i++) {
         Elf64_Shdr header;
         std::memcpy(&header, &content[get_sh_offset(h, i)], h.e_shentsize);
-        cout << "SS:" << header.sh_size << "\n";
-        res.push_back(header);
+        s_hdrs.push_back(header);
+    }
+    std::vector<std::pair<Elf64_Shdr, std::string>> res;
+    std::string shstr_content = get_section_content(content, s_hdrs[h.e_shstrndx]);
+
+    for (Elf64_Shdr s_hdr : s_hdrs) {
+        // now, we have to be careful, because our 'content' string
+        // contains null characters. We use C-functions to copy bytes 
+        // only to first null character.
+        res.push_back(std::make_pair(
+            s_hdr, 
+            std::string( &shstr_content.data()[s_hdr.sh_name] ))
+            );
     }
     return res;
 }
@@ -95,16 +112,10 @@ void print_program_header(Elf64_Phdr h) {
 }
 
 
-std::string get_section_content(const std::string& content, Elf64_Shdr section_hdr) {
-    Elf64_Ehdr h = get_elf_header(content);
-    int begin = section_hdr.sh_offset;
-    return content.substr(begin, begin + section_hdr.sh_size);
-
-    // TODO null
-}
-
-void print_section_header(Elf64_Shdr h) {
-    cout << std::dec << "idx:" << h.sh_name << "\n";
+void print_section_header(std::pair<Elf64_Shdr, std::string>& tup) {
+    Elf64_Shdr& hdr = tup.first;
+    std::string& name = tup.second;
+    cout << std::dec << "SECTION of name: " << name << "\n";
 }
 
 void offsetSections(Elf64_Ehdr hdr, size_t offset) {
@@ -139,11 +150,9 @@ int main() {
 
     auto s_hdrs = get_shs(header, exec_content);
 
-    // for (auto sh : s_hdrs)
-    //     print_section_header(sh);
-
-        
-
+    for (auto sh : s_hdrs)
+        print_section_header(sh);
+    
     // dump(exec_content, "tescik");
 }
 
@@ -152,6 +161,9 @@ int main() {
 
 // int main() {
 
-//     string a {"aa\0bb"};
-//     cout << a.size();
+//     string a {"aaa11"};
+//     for (char el : a) {
+//         printf("%x,", el);
+//     }
+
 // }
