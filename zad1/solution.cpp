@@ -65,7 +65,7 @@ std::vector<std::pair<Elf64_Shdr, std::string>> get_shs(Elf64_Ehdr h, std::strin
         res.push_back(std::make_pair(
             s_hdr, 
             std::string( &shstr_content.data()[s_hdr.sh_name] ))
-            );
+        );
     }
     return res;
 }
@@ -111,11 +111,15 @@ void print_program_header(Elf64_Phdr h) {
         << h.p_vaddr << "\n";
 }
 
+void print_section_header(Elf64_Shdr hdr) {
 
-void print_section_header(std::pair<Elf64_Shdr, std::string>& tup) {
+}
+
+void print_section(std::pair<Elf64_Shdr, std::string>& tup) {
     Elf64_Shdr& hdr = tup.first;
     std::string& name = tup.second;
-    cout << std::dec << "SECTION of name: " << name << "\n";
+    std::cout << std::dec << "SECTION of name " << name << ":\n";
+    print_section_header(hdr);
 }
 
 void offsetSections(Elf64_Ehdr hdr, size_t offset) {
@@ -134,36 +138,57 @@ void addHeader(Elf64_Phdr h, std::string& content, const std::string& what) {
 
 }
 
+std::pair<std::string, std::string> read_input_elfs(std::string exec_fname, std::string rel_fname) {
+
+    try {
+        
+        std::ifstream exec_bin{exec_fname};
+        std::string exec_content((std::istreambuf_iterator<char>(exec_bin)),
+                                std::istreambuf_iterator<char>());
+
+                                
+        std::ifstream rel_bin{rel_fname};
+        std::string rel_content((std::istreambuf_iterator<char>(rel_bin)),
+                                std::istreambuf_iterator<char>());
+
+        exec_bin.close();
+        rel_bin.close();
+
+        return std::make_pair(exec_content, rel_content);
+    } catch (...) {
+        std::cerr << "ERROR: Cannot open given file!\n";
+        exit(1);
+    }
+}
+
 int main() {
-    ifstream exec_bin{"exec_syscall"};
+    auto input_pair = read_input_elfs("exec_syscall", "rel_syscall");
+    
+    std::string exec_content = input_pair.first;
+    std::string rel_content = input_pair.second;
 
-    std::string exec_content((std::istreambuf_iterator<char>(exec_bin)),
-                              std::istreambuf_iterator<char>());
 
+    Elf64_Ehdr exec_hdr;
+    Elf64_Ehdr rel_hdr;
 
-    Elf64_Ehdr header = get_elf_header(exec_content);
+    try {
+        exec_hdr = get_elf_header(exec_content);
+        rel_hdr = get_elf_header(rel_content);
+    } catch (...) {
+        std::cerr << "One of input files is not in ELF format!\n";
+        exit(1);
+    }
 
     // auto p_hdrs = get_phs(header, exec_content);
 
     // for (auto ph : p_hdrs)
     //     print_program_header(ph);
 
-    auto s_hdrs = get_shs(header, exec_content);
+    auto s_hdrs = get_shs(exec_hdr, exec_content);
 
     for (auto sh : s_hdrs)
-        print_section_header(sh);
+        print_section(sh);
     
     // dump(exec_content, "tescik");
 }
 
-
-
-
-// int main() {
-
-//     string a {"aaa11"};
-//     for (char el : a) {
-//         printf("%x,", el);
-//     }
-
-// }
