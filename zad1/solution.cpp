@@ -5,9 +5,8 @@
 #include <cstring>
 #include <vector>
 
-
-#include "Utils.cpp"
-#include "SectionEditor.cpp"
+#include "Utils.hpp"
+#include "SectionEditor.hpp"
 
 using namespace std;
 
@@ -73,6 +72,7 @@ int main() {
     std::string rel_text = rel_s_ed.get_section_content(".text");
 
     SectionEditor exec_s_ed(exec_content);
+
     exec_s_ed.insert_to_section(rel_text, ".text");
 
     exec_s_ed.dump("tescik");

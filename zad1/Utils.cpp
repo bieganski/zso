@@ -5,6 +5,8 @@
 #include <cstring>
 #include <vector>
 
+#include "Utils.hpp"
+
 void integrity_check(Elf64_Ehdr h) {
     if(h.e_ident[1] != 'E' ||
        h.e_ident[2] != 'L' ||
@@ -49,14 +51,6 @@ std::vector<Elf64_Phdr> get_phs(Elf64_Ehdr h, std::string content) {
     }
     return res;
 }
-
-void dump(std::string content, std::string out_file_path) {
-    std::ofstream out;
-    out.open(out_file_path);
-    out << content;
-    out.close();
-}
-
 
 void print_program_header(Elf64_Phdr h) {
     if (h.p_type != PT_LOAD)
