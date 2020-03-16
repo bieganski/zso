@@ -17,7 +17,9 @@ private:
 
 public:
 
-    SectionEditor(const std::string elf) : content(elf) {};
+    SectionEditor(const std::string elf) : content(elf.data(), elf.size()) {
+        assert(content.size() == elf.size());
+    };
 
     static void print_section_header(Elf64_Shdr hdr) {
         std::cout << std::hex << "offset: " << hdr.sh_offset << "\nSize: " << hdr.sh_size << "\n";
@@ -27,6 +29,7 @@ public:
         Elf64_Shdr& hdr = tup.first;
         std::string& name = tup.second;
         std::cout << std::dec << "SECTION of name " << name << ":\n";
+        std::cout << std::dec << "SECTION of name_idx " << hdr.sh_name << ":\n";
         print_section_header(hdr);
     }
 
@@ -53,10 +56,10 @@ public:
     Elf64_Shdr find_section(const std::string& name, const std::vector<section_descr>& sections);
 
     /**
-     * Adds offset to all sections after `sec_name` and increase `sec_name`'s size
-     * by `num` value. 
+     * TODO
      **/
-    std::vector<section_descr> add_offset(const std::string& sec_name, size_t num);
+    void add_offset(const std::string& sec_name, size_t num);
+
     /**
      * TODO na razie obsługuje ten sam size.
      */

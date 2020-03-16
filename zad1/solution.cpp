@@ -68,7 +68,6 @@ int main() {
     //     print_program_header(ph);
 
     SectionEditor rel_s_ed(rel_content);
-
     std::string rel_text = rel_s_ed.get_section_content(".text");
 
     SectionEditor exec_s_ed(exec_content);
@@ -79,3 +78,11 @@ int main() {
 }
 
 
+// int main() {
+
+//     string a{"123456", 5};
+//     char aa[] = "k\0u";
+//     cout << a << "\n";
+//     a.replace(2, 3, aa, 3);
+//     cout << a << a.size();
+// }
