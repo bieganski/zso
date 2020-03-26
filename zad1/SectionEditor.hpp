@@ -17,6 +17,8 @@ private:
 
 public:
 
+    std::string get_content();
+
     SectionEditor(const std::string elf) : content(elf.data(), elf.size()) {
         assert(content.size() == elf.size());
     };
@@ -70,6 +72,19 @@ public:
      * Returns std::string that represents changed binary.
      */
     void insert_to_section(const std::string& what, const std::string& sec_name);
+
+    /**
+     * Inserts 'what' string to `pos` byte.
+     * If `pos` == 0, then it inserts it to section begin,
+     * if `pos` == section_size, then to section end.
+     **/
+    void insert_to_section_pos(const std::string& what, const std::string& sec_name, size_t pos);
+
+    /**
+     * Returns position of first byte added.
+     */
+    size_t append(const std::string& what);
+
 
     void dump(std::string out_file_path);
 };

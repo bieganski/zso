@@ -5,3 +5,6 @@ exec_syscall
 solution
 tescik
 rel_syscall.o
+lol/
+*code-workspace
+*tescik*

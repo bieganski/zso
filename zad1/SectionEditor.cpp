@@ -122,6 +122,19 @@ void SectionEditor::add_offset(const std::string& sec_name, size_t num) {
 
     replace_sec_hdr_tbl(sec_tbl);
 
+    auto phdr_tbl = get_phs(content);
+    // auto map = sec2seg_map(content);
+    // we added bytes to section `sec_name`, that is
+    for (Elf64_Phdr& p : phdr_tbl) {
+        if (p.p_offset >= sec_hdr.sh_offset) {
+            p.p_offset += num;
+            p.p_vaddr += num;
+            p.p_paddr += num;
+            // std::cout << "zwiekszam offset o " << num << " dla naglowka o offsecie " << p.p_offset << "\n"; 
+        }
+    }
+    replace_pdhr_tbl(content, phdr_tbl);
+
     // update elf header .shstrtab offset
 
     Elf64_Ehdr ehdr = get_elf_header(content);
@@ -157,54 +170,42 @@ void SectionEditor::replace_sec_hdr_tbl(std::vector<section_descr> new_tbl) {
     }
 }
 
-    /**
-     * Inserts `what` string to end of `sec_name` section.
-     * Returns std::string that represents changed binary.
-     */
-void SectionEditor::insert_to_section(const std::string& what, const std::string& sec_name) {
-    
+/**
+ * Inserts 'what' string to `pos` byte.
+ * If `pos` == 0, then it inserts it to section begin,
+ * if `pos` == section_size, then to section end.
+ **/
+void SectionEditor::insert_to_section_pos(const std::string& what, const std::string& sec_name, size_t pos) {
+
     size_t begin_len = content.size();
 
     std::vector<section_descr> init_sec_tbl = get_shdrs();
     Elf64_Shdr sec_hdr = find_section(sec_name, init_sec_tbl);
 
-    size_t insert_before_idx = section_end_offset(sec_hdr) + 1;
-
-// #define ELF_ASSERTS 1
-// #ifdef ELF_ASSERTS
-//     size_t lo_sec_addr = SIZE_MAX;
-//     for (auto s_hdr : init_sec_tbl) {
-//         lo_sec_addr = std::min(lo_sec_addr, s_hdr.first.sh_offset);
-//     }
-//     assert(get_elf_header(content).e_shoff < lo_sec_addr);
-// #endif
-    
-
-    // for(int i = 0; i < init_sec_tbl.size(); i++) {
-    //     std::cout << "---- NOWA\n";
-    //     print_section(init_sec_tbl[i]);
-    //     std::cout << "---- STARA\n";
-    //     print_section(new_sect_tbl[i]);
-    //     std::cout << "-------------------\n";
-    // }
-
-    // TODO - logical error, `content` should be const (initial one) (or maybe no?)
+    assert(pos <= sec_hdr.sh_size);
 
     add_offset(sec_name, what.size());
-    content.insert(insert_before_idx, what.data(), what.size());
 
-
-    // std::vector<section_descr> aaa = get_shdrs();
-
-    // for(int i = 0; i < aaa.size(); i++) {
-    //     std::cout << "---- NOWA\n";
-    //     print_section(aaa[i]);
-    // }
-
+    // TODO - ważne!
+    // off + pos czy jeszcze +1? róznica pozornie niewielka
+    content.insert(sec_hdr.sh_offset + pos + 1, what.data(), what.size());
 
     size_t end_len = content.size();
 
-    // TODO assert(begin_len + what.size() == end_len);
+    assert(begin_len + what.size() == end_len);
+}
+
+/**
+ * Inserts `what` string to end of `sec_name` section.
+ */
+void SectionEditor::insert_to_section(const std::string& what, const std::string& sec_name) {
+    
+    std::vector<section_descr> sec_tbl = get_shdrs();
+    Elf64_Shdr sec_hdr = find_section(sec_name, sec_tbl);
+
+    insert_to_section_pos(what, sec_name, sec_hdr.sh_size - 1);
+
+    // seg2sec_map(content);
 }
 
 void SectionEditor::dump(std::string out_file_path) {
@@ -212,4 +213,16 @@ void SectionEditor::dump(std::string out_file_path) {
     out.open(out_file_path);
     out << content;
     out.close();
+}
+
+size_t SectionEditor::append(const std::string& what) {
+    size_t init_size = content.size();
+    content.append(what);
+    assert(init_size + what.size() == content.size());
+    return init_size;
+}
+
+
+std::string SectionEditor::get_content() {
+    return content;
 }

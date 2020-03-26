@@ -1,22 +1,3 @@
-* jesli nie ma sekcji .interp, to program jest uwazany za linkowany statycznie,
-    else ładuje plik w nim wymieniony (ld.linux.so2)
-
-* strtab - nazwy symboli
-* symtab - informacje o symbolach (struktura stalego rozmiaru)
-
-
-* program headers vs tablica sekcji:
-na ten pierwszy patrzy linker dyn. /kernel
-instrukcje co zrobic zeby progra odpalic
-
-, drugi nie zawiera szczegolow
-
-niektore program headersy:
-LOAD: pozcja pliku, adres docelowy
-      ile bajow   , dokąd    R -read
-
-liczby moga sie nie zgadzac - reszte dopchaj zerami (bss)
-
 
 ZADANIE:
 
@@ -27,6 +8,16 @@ tam wepchac nowe naglowki elfa i programu, ponoc da sie inaczej
 
 
 
-dokuemtacja od oracle - rozdzial 7 i 8
+TODO:
 
-przyda sie /usr/include/elf.h - tam są stale ET_REL
+
+- zamiast dodawać bezpośrednio do .text, tworzyć nowe PHy LOAD,
+mergowanie sekcji po flagach RW
+- dodac rzeczy do program headers, zeby ladowaly te segmenty (z odpowiednimi flagami)
+
+
+- dodawanie symboli
+    zamienic symbol _start na orig_start
+    dopisać symbole z rel do exec (w tym _start)
+    w ehdr zrobic e_start na _start
+    
