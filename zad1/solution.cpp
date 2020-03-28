@@ -13,7 +13,9 @@ using namespace std;
 
 typedef SectionEditor SE;
 
-const size_t BASE_REL = 0x800000;
+const static size_t BASE_REL = 0x800000;
+
+const static u_int64_t EXEC_BASE = 0x400000;
 
 std::pair<std::string, std::string> read_input_elfs(std::string exec_fname, std::string rel_fname) {
 
@@ -129,8 +131,8 @@ int main() {
 
     Elf64_Ehdr exec_hdr = get_elf_header(exec_content);
 
-    size_t useful_size = sections_to_move.size() * exec_hdr.e_phentsize;
-    size_t num_pages_begin = compute_num_additional_pages(sections_to_move.size(), exec_hdr.e_phentsize);
+    size_t num_new_phdrs = 1 + sections_to_move.size(); // '1' for additional PT_LOAD with new headers
+    size_t num_pages_begin = compute_num_additional_pages(num_new_phdrs, exec_hdr.e_phentsize);
     size_t whole_size = getpagesize() * num_pages_begin;
     std::string begin_buf;
 
@@ -139,12 +141,33 @@ int main() {
 
     exec_hdr.e_shoff += whole_size;
     exec_hdr.e_phoff = exec_hdr.e_ehsize; // just behind elf header
+    exec_hdr.e_entry += whole_size;
+    exec_hdr.e_phnum += num_new_phdrs;
 
     begin_buf.append((const char*) &exec_hdr, sizeof(Elf64_Ehdr));
     auto phdrs = get_phs(exec_content);
+
+    // first PT_LOAD segment maps elf header and program headers.
+    // create it manually.
+    Elf64_Phdr first_load {
+        .p_type = PT_LOAD,
+        .p_flags = PF_R | PF_X,
+        .p_offset = 0,
+        .p_vaddr = EXEC_BASE - whole_size,
+        .p_paddr = EXEC_BASE - whole_size,
+        .p_filesz = exec_hdr.e_ehsize + (num_new_phdrs + phdrs.size()) * exec_hdr.e_phentsize,
+        .p_memsz = exec_hdr.e_ehsize + (num_new_phdrs + phdrs.size()) * exec_hdr.e_phentsize,
+        .p_align = (Elf64_Xword) 1,
+    };
+
     for (auto& ph : phdrs) {
+        if (ph.p_type == PT_PHDR) {
+            continue;
+        }
         ph.p_offset += whole_size;
     }
+
+    // phdrs.insert(phdrs.begin(), first_load);
 
     // generate new program headers and add offsets to existing program headers table
     std::vector<Elf64_Phdr> new_phdrs;
@@ -162,8 +185,14 @@ int main() {
         };
         new_phdrs.push_back(phdr);
     }
+
     phdrs.insert(phdrs.end(), new_phdrs.begin(), new_phdrs.end());
-    for (size_t i = 0; i < phdrs.size(); i++) {
+    for (size_t i = 0; i < 2; i++) {
+        size_t addr = exec_hdr.e_ehsize + i * exec_hdr.e_phentsize;
+        begin_buf.append((const char*) &phdrs[i], sizeof(Elf64_Phdr));
+    }
+    begin_buf.append((const char*) &first_load, sizeof(Elf64_Phdr));
+    for (size_t i = 2; i < phdrs.size(); i++) {
         size_t addr = exec_hdr.e_ehsize + i * exec_hdr.e_phentsize;
         begin_buf.append((const char*) &phdrs[i], sizeof(Elf64_Phdr));
     }

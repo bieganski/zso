@@ -55,10 +55,9 @@ public:
     static void add_offset(std::string& content, const std::string& sec_name, size_t num);
 
     static void append_sections(std::string& content, 
-                                std::vector<section_descr> new_sections, 
-                                std::vector<std::string> new_sections_contents,
-                                std::vector<size_t> names_positions);
-    
+                                    std::vector<section_descr>& new_sections, 
+                                    const std::vector<std::string>& new_sections_contents,
+                                    const std::vector<size_t>& names_positions);
     /**
      * Inserts `what` string to end of `sec_name` section.
      * Returns position of insertion beginning.

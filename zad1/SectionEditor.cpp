@@ -240,9 +240,9 @@ typedef SectionEditor SE;
 
 // ASSUMPTION: section header table is at the very end of file
 void SectionEditor::append_sections(std::string& content, 
-                                    std::vector<section_descr> new_sections, 
-                                    std::vector<std::string> new_sections_contents,
-                                    std::vector<size_t> names_positions) {
+                                    std::vector<section_descr>& new_sections, 
+                                    const std::vector<std::string>& new_sections_contents,
+                                    const std::vector<size_t>& names_positions) {
     Elf64_Ehdr e_hdr = get_elf_header(content);
 
     assert(new_sections_contents.size() == new_sections.size());
