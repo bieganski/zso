@@ -46,7 +46,7 @@ inline size_t get_ph_offset(Elf64_Ehdr hdr, size_t num) {
 /**
  * Returns vector of all program headers.
  **/
-std::vector<Elf64_Phdr> get_phs(std::string content) {
+std::vector<Elf64_Phdr> get_phs(const std::string& content) {
     Elf64_Ehdr h = get_elf_header(content);
     std::vector<Elf64_Phdr> res;
     for (int i = 0; i < h.e_phnum; i++) {
@@ -83,7 +83,7 @@ std::map<Elf64_Phdr, std::vector<Elf64_Shdr>, DataComparer<Elf64_Phdr>> sec2seg_
 
     std::map<Elf64_Phdr, std::vector<Elf64_Shdr>, DataComparer<Elf64_Phdr>> res;
     auto s_hdrs = SE::get_shdrs(content);
-    auto p_hdrs = get_phs(content);
+    std::vector<Elf64_Phdr> p_hdrs = get_phs(content);
 
     for (Elf64_Phdr p : p_hdrs) {
         auto pair = res.insert(std::make_pair(p, std::vector<Elf64_Shdr>{}));

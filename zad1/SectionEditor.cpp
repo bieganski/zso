@@ -378,10 +378,6 @@ void SectionEditor::replace_sec_hdr_tbl(std::string& content, std::vector<sectio
         size_t addr = begin + i * ent_size;
         size_t s1 = content.size();
         content.replace(addr, ent_size, (const char*) &new_tbl[i].first, ent_size);
-        if (new_tbl[i].second == ".shstrtab") {
-            std::cout << std::hex << "changing off: " << addr << " of " << ent_size <<"bytes \n";
-            std::cout << std::hex << "aa" << new_tbl[i].first.sh_size << "aa\n";
-        }
         size_t s2 = content.size();
         assert(s1 == s2);
     }

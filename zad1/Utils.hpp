@@ -24,7 +24,7 @@ inline size_t get_ph_offset(Elf64_Ehdr hdr, size_t num);
 /**
  * Returns vector of all program headers.
  **/
-std::vector<Elf64_Phdr> get_phs(std::string content);
+std::vector<Elf64_Phdr> get_phs(const std::string& content);
 
 
 void print_program_header(Elf64_Phdr h);
