@@ -141,7 +141,6 @@ int main() {
 
     exec_hdr.e_shoff += whole_size;
     exec_hdr.e_phoff = exec_hdr.e_ehsize; // just behind elf header
-    exec_hdr.e_entry += whole_size;
     exec_hdr.e_phnum += num_new_phdrs;
 
     begin_buf.append((const char*) &exec_hdr, sizeof(Elf64_Ehdr));
@@ -162,9 +161,12 @@ int main() {
 
     for (auto& ph : phdrs) {
         if (ph.p_type == PT_PHDR) {
-            continue;
-        }
-        ph.p_offset += whole_size;
+            size_t addr = EXEC_BASE - whole_size + exec_hdr.e_phoff;
+            ph.p_paddr = addr;
+            ph.p_vaddr = addr;
+        } else {
+            ph.p_offset += whole_size;
+        }   
     }
 
     // phdrs.insert(phdrs.begin(), first_load);
