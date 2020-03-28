@@ -16,6 +16,8 @@
 #include <execinfo.h>
 #include <cxxabi.h>
 
+#include <stddef.h>
+
 /** Print a demangled stack backtrace of the caller function to FILE* out. */
 static inline void print_stacktrace(FILE *out = stderr, unsigned int max_frames = 63)
 {
@@ -194,6 +196,7 @@ void SectionEditor::add_offset(std::string& content, const std::string& sec_name
     for (auto & sec_descr : sec_tbl) {
         if (sec_descr.second == sec_name) {
             // edited one, change it's size
+            std::cout << "zwiekszam o " << num << "bajtow\n";
             sec_descr.first.sh_size += num;
         }
         else if (sec_descr.first.sh_offset > my_offset) {
@@ -201,17 +204,9 @@ void SectionEditor::add_offset(std::string& content, const std::string& sec_name
             // increase it's offset by number of bytes inserted
             sec_descr.first.sh_offset += num;
         }
-
-        if (false) {
-            // TODO, czy to może być przed sekcją .text? (pewnie tak!)
-            sec_descr.first.sh_name += num;
-        }
     }
 
-    // print_stacktrace();
-    assert(sec_name == ".shstrtab");
-    // TODO ukraść z gita
-    // replace_sec_hdr_tbl(content, sec_tbl);
+    replace_sec_hdr_tbl(content, sec_tbl);
 
     auto phdr_tbl = get_phs(content);
     // auto map = sec2seg_map(content);
@@ -292,45 +287,6 @@ void SectionEditor::append_sections(std::string& content,
     content.replace(0, sizeof(Elf64_Ehdr), (const char*) &e_hdr, sizeof(Elf64_Ehdr));
 }
 
-/**
- * Inserts 'what' string to `pos` byte.
- * If `pos` == 0, then it inserts it to section begin,
- * if `pos` == section_size, then to section end.
- **/
-size_t SectionEditor::insert_to_section_pos(std::string& content, const std::string& what, const std::string& sec_name, size_t pos) {
-
-    size_t begin_len = content.size();
-
-    std::vector<section_descr> init_sec_tbl = get_shdrs(content);
-    Elf64_Shdr sec_hdr = find_section(sec_name, init_sec_tbl);
-
-    assert(pos <= sec_hdr.sh_size);
-
-    add_offset(content, sec_name, what.size());
-
-    // TODO - ważne!
-    // off + pos czy jeszcze +1? róznica pozornie niewielka
-    content.insert(sec_hdr.sh_offset + pos + 1, what.data(), what.size());
-
-    size_t end_len = content.size();
-
-    assert(begin_len + what.size() == end_len);
-
-    return sec_hdr.sh_offset + pos + 1;
-}
-
-/**
- * Inserts `what` string to end of `sec_name` section.
- */
-size_t SectionEditor::insert_to_section(std::string& content, const std::string& what, const std::string& sec_name) {
-    
-    std::vector<section_descr> sec_tbl = get_shdrs(content);
-    Elf64_Shdr sec_hdr = find_section(sec_name, sec_tbl);
-
-    return insert_to_section_pos(content, what, sec_name, sec_hdr.sh_size - 1);
-
-    // seg2sec_map(content);
-}
 
 void SectionEditor::dump(const std::string& content, const std::string& out_file_path) {
     std::ofstream out;
@@ -346,16 +302,87 @@ size_t SectionEditor::append(std::string& content, const std::string& what) {
     return init_size;
 }
 
-std::vector<size_t> SectionEditor::add_moved_section_names(std::string& content, const std::vector<section_descr>& sections_to_move) {
+inline size_t get_section_offset(const std::string& content, const std::string sec_name) {
+    return SE::find_section(sec_name, SE::get_shdrs(content)).sh_offset;
+}
+
+
+/**
+ * ASSUMPTION:
+ * ".shstrtab" is the last section, after it is only section header table.
+ *  Returns vector of positions relevant to .shstrtab offset.
+ */
+std::vector<size_t> SectionEditor::add_moved_section_names(std::string& content, std::vector<section_descr>& sections_to_move) {
     std::vector<size_t> res;
-    for (auto pair : sections_to_move) {
-        Elf64_Shdr& hdr = pair.first;
+
+    size_t s0 = content.size();
+    size_t shstrtab_off = get_section_offset(content, ".shstrtab");
+    Elf64_Ehdr ehdr = get_elf_header(content);
+    
+    size_t cut_off = 0;
+    for (auto& pair : SE::get_shdrs(content)) {
+        if (pair.second == ".shstrtab") {
+            cut_off = pair.first.sh_offset + pair.first.sh_size; 
+        }
+    }
+    assert(cut_off > 0);
+    
+    std::string cutted_str = content.substr(cut_off, std::string::npos);
+    assert(cutted_str.size() >= ehdr.e_shnum * ehdr.e_shentsize);
+    content.erase(cut_off, std::string::npos);
+
+    assert(content.size() + cutted_str.size() == s0);
+
+    size_t sum_size = 0;
+    for (auto& pair : sections_to_move) {
         std::string& name = pair.second;
 
         const std::string prefix = "MOVED";
-        size_t pos = SectionEditor::insert_to_section(content, prefix + name, ".shstrtab");
-        res.push_back(pos);
-        SectionEditor::insert_to_section(content, std::string("\0", 1), ".shstrtab");
+        std::string new_name = prefix + name;
+        
+        res.push_back(content.size() - shstrtab_off);
+        content.append(new_name.c_str(), new_name.size());
+
+        content.append("\0", 1);
+        sum_size += new_name.size() + 1;
     }
+
+    ehdr.e_shoff += sum_size;
+    content.append(cutted_str);
+    assert(content.size() == s0 + sum_size);
+
+    content.replace(0, sizeof(Elf64_Ehdr), (const char*) &ehdr, sizeof(Elf64_Ehdr));
+
+    auto sec_hdrs = SE::get_shdrs(content);
+
+    for (auto& pair : sec_hdrs) {
+        if (pair.second == ".shstrtab") {
+            pair.first.sh_size += sum_size;
+        }
+    }
+
+    replace_sec_hdr_tbl(content, sec_hdrs);
+
     return res;
+}
+
+
+void SectionEditor::replace_sec_hdr_tbl(std::string& content, std::vector<section_descr>& new_tbl) {
+    Elf64_Ehdr e_hdr = get_elf_header(content);
+    
+    assert(new_tbl.size() == e_hdr.e_shnum);
+    size_t begin = e_hdr.e_shoff;
+    size_t ent_size = e_hdr.e_shentsize;
+    
+    for (size_t i = 0; i < new_tbl.size(); i++) {
+        size_t addr = begin + i * ent_size;
+        size_t s1 = content.size();
+        content.replace(addr, ent_size, (const char*) &new_tbl[i].first, ent_size);
+        if (new_tbl[i].second == ".shstrtab") {
+            std::cout << std::hex << "changing off: " << addr << " of " << ent_size <<"bytes \n";
+            std::cout << std::hex << "aa" << new_tbl[i].first.sh_size << "aa\n";
+        }
+        size_t s2 = content.size();
+        assert(s1 == s2);
+    }
 }

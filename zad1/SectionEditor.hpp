@@ -83,5 +83,7 @@ public:
     /**
      * Returns vector of positions of inserted section names.
      */
-    static std::vector<size_t> add_moved_section_names(std::string&, const std::vector<section_descr>&);
+    static std::vector<size_t> add_moved_section_names(std::string&, std::vector<section_descr>&);
+
+    static void replace_sec_hdr_tbl(std::string& content, std::vector<section_descr>& new_tbl);
 };

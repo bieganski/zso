@@ -105,6 +105,9 @@ int main() {
     }
 
     auto name_positions = SE::add_moved_section_names(exec_content, sections_to_move);
+    for (size_t& el : name_positions) {
+        cout << dec << el << ",";
+    }
 
     SE::append_sections(exec_content, sections_to_move, moved_sections_contents, name_positions);
 
