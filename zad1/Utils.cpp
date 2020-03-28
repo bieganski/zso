@@ -9,6 +9,8 @@
 #include "Utils.hpp"
 #include "SectionEditor.hpp"
 
+typedef SectionEditor SE;
+
 void integrity_check(Elf64_Ehdr h) {
     if(h.e_ident[1] != 'E' ||
        h.e_ident[2] != 'L' ||
@@ -78,10 +80,9 @@ void print_program_header(Elf64_Phdr h) {
 }
 
 std::map<Elf64_Phdr, std::vector<Elf64_Shdr>, DataComparer<Elf64_Phdr>> sec2seg_map(const std::string& content) {
-    SectionEditor se(content);
 
     std::map<Elf64_Phdr, std::vector<Elf64_Shdr>, DataComparer<Elf64_Phdr>> res;
-    auto s_hdrs = se.get_shdrs();
+    auto s_hdrs = SE::get_shdrs(content);
     auto p_hdrs = get_phs(content);
 
     for (Elf64_Phdr p : p_hdrs) {

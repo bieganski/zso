@@ -10,6 +10,7 @@
 
 using namespace std;
 
+typedef SectionEditor SE;
 
 std::pair<std::string, std::string> read_input_elfs(std::string exec_fname, std::string rel_fname) {
 
@@ -34,15 +35,27 @@ std::pair<std::string, std::string> read_input_elfs(std::string exec_fname, std:
     }
 }
 
+std::vector<section_descr> update_section_hdrs_move(const std::vector<section_descr>& sections_to_move, 
+    size_t off,
+    size_t name_idx) {
 
-// TODO pozbyc sie
-void dump(std::string out_file_path, std::string& content) {
-    std::ofstream out;
-    out.open(out_file_path);
-    out << content;
-    out.close();
+        std::vector<section_descr> res(sections_to_move);
+
+        size_t base = 0x800000;
+
+        for (auto& pair : res) {
+            Elf64_Shdr& hdr = pair.first;
+            string& name = pair.second;
+            hdr.sh_addr = base + off;
+            hdr.sh_offset = off;
+            hdr.sh_name = name_idx;
+
+            name_idx++;
+            off += hdr.sh_size;
+        }
+
+        return res;
 }
-
 
 int main() {
     auto input_pair = read_input_elfs("exec_syscall", "rel_syscall.o");
@@ -71,93 +84,29 @@ int main() {
     integrity_check(exec_hdr);
     integrity_check(rel_hdr);
 
-    // auto p_hdrs = get_phs(header, exec_content);
+    std::vector<section_descr> section_hdrs = SE::get_shdrs(rel_content);
 
-    // for (auto ph : p_hdrs)
-    //     print_program_header(ph);
-
-    SectionEditor rel_s_ed(rel_content);
-    std::string rel_text = rel_s_ed.get_section_content(".text");
-
-    // SectionEditor exec_s_ed(exec_content);
-
-    // exec_s_ed.insert_to_section(rel_text, ".text");
-
-    // -----------------------------------
-
-    size_t __pos0 = exec_content.size();
-    auto phs = get_phs(exec_content);
-
-    // TODO sprawdzic referencje
-    for (auto &ph : phs) {
-        if (ph.p_type == PT_PHDR) {
-            ph.p_offset = __pos0 + 64;
-            ph.p_vaddr += 0x2030;
-            ph.p_paddr += 0x2030;
-        }
-        if (ph.p_offset == 0) {
-            assert(ph.p_type == PT_LOAD);
-            ph.p_offset = __pos0;
-            ph.p_vaddr += 0x2030;
-            ph.p_paddr += 0x2030;
-            break;
+    std::vector<section_descr> sections_to_move;
+    for (auto pair : section_hdrs) {
+        Elf64_Shdr hdr = pair.first;
+        if (hdr.sh_flags & SHF_ALLOC) {
+            sections_to_move.push_back(pair);
+            // SectionEditor::print_section(pair);
         }
     }
 
-    replace_pdhr_tbl(exec_content, phs);
+    std::vector<std::string> moved_sections_contents;
 
-    Elf64_Ehdr ehdr = get_elf_header(exec_content);
+    for (auto& pair : sections_to_move) {
+        Elf64_Shdr& hdr = pair.first;
+        string& name = pair.second;
 
-    ehdr.e_entry += 0x2030;
-    ehdr.e_phoff = __pos0 + ehdr.e_ehsize;
+        moved_sections_contents.push_back(SE::get_section_content(rel_content, name));
+    }
 
-    exec_content.replace(0, ehdr.e_ehsize, (const char*) &ehdr, ehdr.e_ehsize);
+    auto name_positions = SE::add_moved_section_names(exec_content, sections_to_move);
 
-    SectionEditor exec_s_ed(exec_content);
+    SE::append_sections(exec_content, sections_to_move, moved_sections_contents, name_positions);
 
-    std::string ehphs = exec_content.substr(0, 0x6e0);
-
-    exec_s_ed.append(ehphs);
-
-    auto totalres = exec_s_ed.get_content();
-
-    dump("tescik", totalres);
-    // // ----------------------------------
-
-    // // EHDR + PHDR = 120 bajtow
-    // std::string res = exec_content.substr(0, 0x6e0);
-    // size_t __pos0 = exec_content.size;
-    // size_t pos0 = exec_s_ed.append(res);
-    // auto phs = get_phs(exec_content);
-
-    // // TODO sprawdzic referencje
-    // for (auto &ph : phs) {
-    //     if (ph.p_offset == 0) {
-    //         assert(ph.p_type == PT_LOAD);
-    //         ph.p_offset = pos0;
-    //         break;
-    //     }
-    // }
-
-    // std::string res_content = exec_s_ed.get_content();
-    // replace_pdhr_tbl(res_content, phs);
-
-    // Elf64_Ehdr ehdr = get_elf_header(res_content);
-    // ehdr.e_phoff = pos0 + ehdr.e_ehsize;
-    // res_content.replace(0, ehdr.e_ehsize, (const char*) &ehdr, ehdr.e_ehsize);
-
-    // dump("tescik", res_content);
-
-    // exec_s_ed.dump("tescik");
+    SE::dump(exec_content, "tescik");
 }
-
-
-
-// int main() {
-
-//     string a{"123456", 5};
-//     char aa[] = "k\0u";
-//     cout << a << "\n";
-//     a.replace(2, 3, aa, 3);
-//     cout << a << a.size();
-// }

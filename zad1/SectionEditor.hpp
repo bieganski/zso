@@ -9,19 +9,14 @@
 using section_descr = std::pair<Elf64_Shdr, std::string> ;
 
 
+// `content` argument always means elf file content 
 class SectionEditor {
 private:
-    std::string content; // content of given elf
-
-    std::string get_section_content(Elf64_Shdr section_hdr);
+    static std::string get_section_content(const std::string& content, Elf64_Shdr section_hdr);
 
 public:
 
-    std::string get_content();
-
-    SectionEditor(const std::string elf) : content(elf.data(), elf.size()) {
-        assert(content.size() == elf.size());
-    };
+    const static size_t MOVE_BASE = 0x800000;
 
     static void print_section_header(Elf64_Shdr hdr) {
         std::cout << std::hex << "offset: " << hdr.sh_offset << "\nSize: " << hdr.sh_size << "\n";
@@ -39,52 +34,54 @@ public:
      * Get address of exact section header offset.
      * Called with num=0 returns adress of section header table.
      **/
-    inline size_t get_sh_offset(Elf64_Ehdr hdr, size_t num);
+    inline static size_t get_sh_offset(Elf64_Ehdr hdr, size_t num);
 
-    std::string get_section_content(const std::string& name);
+    static std::string get_section_content(const std::string& content, const std::string& name);
 
     /**
      * Returns vector of all sections headers with it's names.
      **/
-    std::vector<section_descr> get_shdrs();
+    static std::vector<section_descr> get_shdrs(const std::string& content);
 
     /**
      * Returns last number of byte that belongs to given section.
      **/ 
-    inline size_t section_end_offset(Elf64_Shdr hdr);
+    inline static size_t section_end_offset(Elf64_Shdr hdr);
 
-    size_t find_section_idx(const std::string& name, const std::vector<section_descr>& sections);
+    static size_t find_section_idx(const std::string& name, const std::vector<section_descr>& sections);
 
-    Elf64_Shdr find_section(const std::string& name, const std::vector<section_descr>& sections);
+    static Elf64_Shdr find_section(const std::string& name, const std::vector<section_descr>& sections);
 
-    /**
-     * TODO
-     **/
-    void add_offset(const std::string& sec_name, size_t num);
+    static void add_offset(std::string& content, const std::string& sec_name, size_t num);
 
-    /**
-     * TODO na razie obsługuje ten sam size.
-     */
-    void replace_sec_hdr_tbl(std::vector<section_descr> new_tbl);
-
+    static void append_sections(std::string& content, 
+                                std::vector<section_descr> new_sections, 
+                                std::vector<std::string> new_sections_contents,
+                                std::vector<size_t> names_positions);
+    
     /**
      * Inserts `what` string to end of `sec_name` section.
-     * Returns std::string that represents changed binary.
+     * Returns position of insertion beginning.
      */
-    void insert_to_section(const std::string& what, const std::string& sec_name);
+    static size_t insert_to_section(std::string& content, const std::string& what, const std::string& sec_name);
 
     /**
      * Inserts 'what' string to `pos` byte.
      * If `pos` == 0, then it inserts it to section begin,
      * if `pos` == section_size, then to section end.
+     * Returns position of insertion beginning.
      **/
-    void insert_to_section_pos(const std::string& what, const std::string& sec_name, size_t pos);
+    static size_t insert_to_section_pos(std::string& content, const std::string& what, const std::string& sec_name, size_t pos);
 
     /**
      * Returns position of first byte added.
      */
-    size_t append(const std::string& what);
+    static size_t append(std::string& content, const std::string& what);
 
+    static void dump(const std::string& content, const std::string& out_file_path);
 
-    void dump(std::string out_file_path);
+    /**
+     * Returns vector of positions of inserted section names.
+     */
+    static std::vector<size_t> add_moved_section_names(std::string&, const std::vector<section_descr>&);
 };
