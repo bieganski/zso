@@ -26,7 +26,7 @@ void integrity_check(Elf64_Ehdr h) {
 Elf64_Ehdr get_elf_header(const std::string& content) {
     Elf64_Ehdr header;
     
-    std::memcpy(&header, content.c_str(), sizeof(Elf64_Ehdr));
+    std::memcpy(&header, content.data(), sizeof(Elf64_Ehdr));
     // cout << hex << setfill('0') << setw(2) << header.e_ident ;
 
     return header;

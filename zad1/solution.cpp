@@ -83,6 +83,8 @@ Elf64_Word get_phflags(Elf64_Xword sh_flags) {
     return flags;
 }
 
+void resolve_relocations(std::string&, const std::string&);
+
 int main() {
     auto input_pair = read_input_elfs("exec_syscall", "rel_syscall.o");
     
@@ -211,6 +213,47 @@ int main() {
     begin_buf.resize(whole_size, '\0');
     exec_content.insert(0, begin_buf);
 
+    resolve_relocations(exec_content, rel_content);
+
     SE::dump(exec_content, "tescik");
 }
 
+using symtab_descr = std::pair<Elf64_Sym, std::string>;
+
+std::vector<section_descr> get_rela_sections(const std::string& content) {
+    auto pairs = SE::get_shdrs(content);
+    std::vector<section_descr> res;
+    for (auto& pair : pairs) {
+        if (pair.first.sh_type == SHT_RELA)
+            res.push_back(pair);
+    }
+    assert(res.size() > 0);
+    return res;
+}
+
+
+std::vector<symtab_descr> get_symbols(const std::string& content) {
+    auto shdrs = SE::get_shdrs(content);
+    Elf64_Shdr symtab = SE::find_section(".symtab", shdrs);
+    std::string strtab_content = SE::get_section_content(content, ".strtab");
+    std::vector<symtab_descr> res;
+
+    assert(symtab.sh_size % sizeof(Elf64_Sym) == 0);
+
+    for (size_t i = 0; i < symtab.sh_size; i = i + sizeof(Elf64_Sym)) {
+        Elf64_Sym sym;
+        size_t addr = i + symtab.sh_offset;
+        memcpy(&sym, &content.data()[addr], sizeof(Elf64_Sym));
+        std::string s(&strtab_content.data()[sym.st_name]); // to first null char
+        res.push_back(std::make_pair(sym, s));
+    }
+
+    return res;
+}
+
+void resolve_relocations(std::string& exec_content, const std::string& rel_content) {
+    auto symbols = get_symbols(exec_content);
+    auto relas = get_rela_sections(exec_content);
+
+    return;
+}

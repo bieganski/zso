@@ -341,7 +341,7 @@ std::vector<size_t> SectionEditor::add_moved_section_names(std::string& content,
         std::string new_name = prefix + name;
         
         res.push_back(content.size() - shstrtab_off);
-        content.append(new_name.c_str(), new_name.size());
+        content.append(new_name.data(), new_name.size());
 
         content.append("\0", 1);
         sum_size += new_name.size() + 1;

@@ -1,5 +1,5 @@
 CXX := g++
-CXXFLAGS := -O2 -fno-common -no-pie -fno-pie -export-dynamic
+CXXFLAGS := -O0 -fno-common -no-pie -fno-pie -export-dynamic
 TARGET := solution
 LIBS := SectionEditor.cpp Utils.cpp
 
