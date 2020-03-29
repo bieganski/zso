@@ -219,6 +219,9 @@ int main() {
 }
 
 using symtab_descr = std::pair<Elf64_Sym, std::string>;
+using rela_descr = std::pair<Elf64_Rela, std::string>;
+
+
 
 std::vector<section_descr> get_rela_sections(const std::string& content) {
     auto pairs = SE::get_shdrs(content);
@@ -231,6 +234,28 @@ std::vector<section_descr> get_rela_sections(const std::string& content) {
     return res;
 }
 
+std::vector<rela_descr> get_rela_entries(const std::string& content) {
+    std::vector<rela_descr> res;
+    auto rela_sections = get_rela_sections(content);
+    for(auto& rela : rela_sections) {
+        assert(rela.second.substr(0, 5) == ".rela");
+        Elf64_Rela r;
+        assert(rela.first.sh_size % sizeof(Elf64_Rela) == 0);
+        for (size_t i = 0; i < rela.first.sh_size; i+=sizeof(Elf64_Rela)) {
+            Elf64_Rela r;
+            size_t addr = i + rela.first.sh_offset;
+            memcpy(&r, &content.data()[addr], sizeof(Elf64_Sym));
+            size_t sym_idx = ELF64_R_SYM(r.r_info);
+            cout << sym_idx << ",";
+        }
+    }
+    return res;
+}
+
+
+// #define ELF64_R_SYM(info) ((info)>>32)
+// #define ELF64_R_TYPE(info) ((Elf64_Word)(info))
+// #define ELF64_R_INFO(sym, type)
 
 std::vector<symtab_descr> get_symbols(const std::string& content) {
     auto shdrs = SE::get_shdrs(content);
@@ -240,7 +265,7 @@ std::vector<symtab_descr> get_symbols(const std::string& content) {
 
     assert(symtab.sh_size % sizeof(Elf64_Sym) == 0);
 
-    for (size_t i = 0; i < symtab.sh_size; i = i + sizeof(Elf64_Sym)) {
+    for (size_t i = 0; i < symtab.sh_size; i+=sizeof(Elf64_Sym)) {
         Elf64_Sym sym;
         size_t addr = i + symtab.sh_offset;
         memcpy(&sym, &content.data()[addr], sizeof(Elf64_Sym));
@@ -251,9 +276,15 @@ std::vector<symtab_descr> get_symbols(const std::string& content) {
     return res;
 }
 
+
+/**
+ * TODO
+ * dla każdej relokacji z ET_REL wylicz jej nowy adres, załaduj symbol o tej nazwie 
+ * z ET_EXEC (jego adres) we wskazane miejsce (addend).
+ * */
 void resolve_relocations(std::string& exec_content, const std::string& rel_content) {
-    auto symbols = get_symbols(exec_content);
-    auto relas = get_rela_sections(exec_content);
+    // auto symbols = get_symbols(exec_content);
+    auto relas = get_rela_entries(exec_content);
 
     return;
 }
