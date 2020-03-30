@@ -11,6 +11,15 @@
 
 using namespace std;
 
+using symbol_descr = std::pair<Elf64_Sym, std::string>;
+
+typedef struct rela_descr {
+    Elf64_Rela hdr;
+    symbol_descr symbol;
+    size_t vaddr;
+} rela_descr;
+
+
 typedef SectionEditor SE;
 
 const static size_t BASE_REL = 0x800000;
@@ -218,14 +227,36 @@ int main() {
     SE::dump(exec_content, "tescik");
 }
 
-using symbol_descr = std::pair<Elf64_Sym, std::string>;
+std::string num2str32(int32_t num) {
+    std::stringstream ss, ss2;
+    ss << hex << num;
+    string str, s2;
+    
+    ss >> str;
 
-typedef struct rela_descr {
-    Elf64_Rela hdr;
-    symbol_descr symbol;
-    size_t vaddr;
-    size_t relo_size;
-} rela_descr;
+    for (std::size_t i = 0; i < str.length() - 1; ++++i) {
+        ss2 << static_cast<char>(str[i] * 16 + str[i + 1]);
+    }
+
+
+    ss2 >> s2;
+    return s2;
+}
+
+size_t vaddr2off(const std::string& exec_content, size_t vaddr) {
+    auto phdrs = get_phs(exec_content);
+
+    for (const auto& ph : phdrs) {
+        if (ph.p_type == PT_LOAD) {
+            if (vaddr >= ph.p_vaddr && vaddr <= ph.p_vaddr + ph.p_memsz) {
+                size_t off = vaddr - ph.p_vaddr;
+                return ph.p_offset + off;
+            }
+        }
+    }
+    throw "Internal error: Adress "//  + num2str(vaddr) + " isn't mapped into memory";
+}
+
 
 // #define ELF64_R_SYM(info) ((info)>>32)
 // #define ELF64_R_TYPE(info) ((Elf64_Word)(info))
@@ -247,6 +278,20 @@ std::vector<symbol_descr> get_symbols(const std::string& content) {
     }
     return res;
 }
+
+symbol_descr find_corresponding_symbol(const std::string& exec_content, symbol_descr rel_sym) {
+    auto exec_symbols = get_symbols(exec_content);
+    if (rel_sym.second == "orig_start") {
+        rel_sym.second = "_start";
+    }
+    for (auto pair : exec_symbols) {
+        if (pair.second == rel_sym.second) {
+            return pair;
+        }
+    }
+    throw "No " + rel_sym.second + " symbol in ET_EXEC file!";
+}
+
 size_t get_rela_vaddr(const std::string& content, const std::string& sec_name, Elf64_Rela r) {
     // auto sec_idx = SE::get_section_idx(content, sec_name);
     size_t vaddr = SE::get_section_vaddr(content, sec_name);
@@ -268,7 +313,7 @@ std::vector<section_descr> get_rela_sections(const std::string& content) {
 std::vector<rela_descr> get_rela_entries(const std::string& exec_content, const std::string& rel_content) {
     std::vector<rela_descr> res;
     auto rela_sections = get_rela_sections(rel_content);
-    auto symbols = get_symbols(exec_content);
+    auto rel_symbols = get_symbols(rel_content);
     for(auto& rela : rela_sections) {
         assert(rela.second.substr(0, 5) == ".rela");
         
@@ -286,22 +331,24 @@ std::vector<rela_descr> get_rela_entries(const std::string& exec_content, const 
             assert(r.r_offset < 0xff);
 
             size_t sym_idx = ELF64_R_SYM(r.r_info);
-            symbol_descr sym = symbols[sym_idx];
+            symbol_descr rel_sym = rel_symbols[sym_idx];
+            // we have obtained UND symbol from ET_REL,
+            // now we must obtain corresponding one from
+            // ET_EXEC, thus find it by name
+            symbol_descr exec_sym = find_corresponding_symbol(exec_content, rel_sym);
             std::string sec_name = rela.second.substr(5, std::string::npos);
             sec_name.insert(0, "MOVED");
 
             rela_descr res_rela {
                 .hdr = r,
-                .symbol = sym,
+                .symbol = exec_sym,
                 .vaddr = get_rela_vaddr(exec_content, sec_name, r),
-                .relo_size = 4
             };
             res.push_back(res_rela);
         }
     }
     return res;
 }
-
 
 /**
  * TODO
@@ -311,8 +358,24 @@ std::vector<rela_descr> get_rela_entries(const std::string& exec_content, const 
 void resolve_relocations(std::string& exec_content, const std::string& rel_content) {
     auto symbols = get_symbols(exec_content);
     auto relas = get_rela_entries(exec_content, rel_content);
-    for (auto r : relas) {
-        cout << hex << r.vaddr << "\n";
+    cout << "REL:\n";
+    for (rela_descr r : relas) {
+        if (ELF64_R_TYPE(r.hdr.r_info) == R_X86_64_PC32) {
+            size_t rela_off = vaddr2off(exec_content, r.vaddr);
+
+            cout << hex <<  "\nadres sybolu: " <<  r.symbol.first.st_value;
+            cout << hex << "\nadres pola: " << r.vaddr;
+            cout << hex << "\naddend: " << -1 * r.hdr.r_addend << "\n";
+            size_t RES = r.symbol.first.st_value - r.vaddr + r.hdr.r_addend;
+
+            stdd:string new_bytes = num2str32((int32_t) RES); // "XDDD";
+
+            cout << hex << "replacing bytes at " << rela_off << ", bytes:" << (int32_t) RES << ", " << new_bytes << "\n";
+
+            size_t s0 = exec_content.size();
+            exec_content.replace(rela_off, 4, new_bytes.data(), 4); // pos len const char*
+            assert (s0 == exec_content.size());
+        }
     }
     return;
 }
