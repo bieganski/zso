@@ -94,6 +94,182 @@ Elf64_Word get_phflags(Elf64_Xword sh_flags) {
 
 void resolve_relocations(std::string&, const std::string&);
 
+size_t vaddr2off(const std::string& exec_content, size_t vaddr) {
+    auto phdrs = get_phs(exec_content);
+
+    for (const auto& ph : phdrs) {
+        if (ph.p_type == PT_LOAD) {
+            if (vaddr >= ph.p_vaddr && vaddr <= ph.p_vaddr + ph.p_memsz) {
+                size_t off = vaddr - ph.p_vaddr;
+                return ph.p_offset + off;
+            }
+        }
+    }
+    std::stringstream err;
+    err << "Internal error: Adress " << vaddr <<  " isn't mapped into memory";
+    throw err.str();
+}
+
+
+// #define ELF64_R_SYM(info) ((info)>>32)
+// #define ELF64_R_TYPE(info) ((Elf64_Word)(info))
+// #define ELF64_R_INFO(sym, type)
+
+std::vector<symbol_descr> get_symbols(const std::string& content) {
+    auto shdrs = SE::get_shdrs(content);
+    Elf64_Shdr symtab = SE::find_section(".symtab", shdrs);
+    std::string strtab_content = SE::get_section_content(content, ".strtab");
+    std::vector<symbol_descr> res;
+
+    assert(symtab.sh_size % sizeof(Elf64_Sym) == 0);
+    for (size_t i = 0; i < symtab.sh_size; i+=sizeof(Elf64_Sym)) {
+        Elf64_Sym sym;
+        size_t addr = i + symtab.sh_offset;
+        memcpy(&sym, &content.data()[addr], sizeof(Elf64_Sym));
+        std::string s(&strtab_content.data()[sym.st_name]); // to first null char
+        res.push_back(std::make_pair(sym, s));
+    }
+    return res;
+}
+
+symbol_descr find_corresponding_symbol(const std::string& exec_content, symbol_descr rel_sym) {
+    auto exec_symbols = get_symbols(exec_content);
+    if (rel_sym.second == "orig_start") {
+        rel_sym.second = "_start";
+    }
+    for (auto pair : exec_symbols) {
+        if (pair.second == rel_sym.second) {
+            return pair;
+        }
+    }
+    throw "No " + rel_sym.second + " symbol in ET_EXEC file!";
+}
+
+size_t get_rela_vaddr(const std::string& content, const std::string& sec_name, Elf64_Rela r) {
+    // auto sec_idx = SE::get_section_idx(content, sec_name);
+    size_t vaddr = SE::get_section_vaddr(content, sec_name);
+    cout << "off: " << r.r_offset << "\n";
+    return vaddr + r.r_offset; // TODO typy relokacji
+}
+
+std::vector<section_descr> get_rela_sections(const std::string& content) {
+    auto pairs = SE::get_shdrs(content);
+    std::vector<section_descr> res;
+    for (auto& pair : pairs) {
+        if (pair.first.sh_type == SHT_RELA)
+            res.push_back(pair);
+    }
+    assert(res.size() > 0);
+    return res;
+}
+
+std::vector<rela_descr> get_rela_entries(const std::string& exec_content, const std::string& rel_content) {
+    std::vector<rela_descr> res;
+    auto rela_sections = get_rela_sections(rel_content);
+    auto rel_symbols = get_symbols(rel_content);
+    for(auto& rela : rela_sections) {
+        assert(rela.second.substr(0, 5) == ".rela");
+        
+        Elf64_Rela r;
+        assert(rela.first.sh_size % sizeof(Elf64_Rela) == 0);
+        for (size_t i = 0; i < rela.first.sh_size; i+=sizeof(Elf64_Rela)) {
+            Elf64_Rela r;
+            size_t addr = i + rela.first.sh_offset;
+            memcpy(&r, &rel_content.data()[addr], sizeof(Elf64_Rela));
+
+            // cout << hex << "section_off: " << rela.first.sh_offset;
+            // cout << hex << "\naddr: " << addr;
+
+            assert(r.r_addend <= 8);
+            assert(r.r_offset < 0xff);
+
+            size_t sym_idx = ELF64_R_SYM(r.r_info);
+            symbol_descr rel_sym = rel_symbols[sym_idx];
+            // we have obtained UND symbol from ET_REL,
+            // now we must obtain corresponding one from
+            // ET_EXEC, thus find it by name
+            symbol_descr exec_sym = find_corresponding_symbol(exec_content, rel_sym);
+            std::string sec_name = rela.second.substr(5, std::string::npos);
+            sec_name.insert(0, "MOVED");
+
+            rela_descr res_rela {
+                .hdr = r,
+                .symbol = exec_sym,
+                .vaddr = get_rela_vaddr(exec_content, sec_name, r),
+            };
+            res.push_back(res_rela);
+        }
+    }
+    return res;
+}
+
+
+/**
+ * This should be simple, but it's not because of
+ * need to printf unformatted number bytes - it needs
+ * stream's `write` method.
+ * Does a lot of copies, may be slow for large binaries.
+ */
+void execute_relocation(std::string& content, int32_t rel_val, size_t offset, bool rel64 = false) {
+    std::stringstream ss;
+
+    size_t num = rel64 ? 8 : 4;
+
+    size_t s0 = content.size();
+    ss << content.substr(0, offset);
+    ss.write((const char*) &rel_val, num);
+    ss << content.substr(offset + num, std::string::npos);
+    content.clear();
+    content = ss.str();
+    assert (s0 == content.size());
+}
+
+void resolve_relocations(std::string& exec_content, const std::string& rel_content) {
+    auto symbols = get_symbols(exec_content);
+    auto relas = get_rela_entries(exec_content, rel_content);
+
+    for (rela_descr r : relas) {
+        size_t rela_off = vaddr2off(exec_content, r.vaddr);
+        size_t rel_val = r.symbol.first.st_value + r.hdr.r_addend;
+
+        if (ELF64_R_TYPE(r.hdr.r_info) == R_X86_64_PC32) {
+            rel_val -= r.vaddr; // relative
+            execute_relocation(exec_content, rel_val, rela_off);
+
+        } else if (ELF64_R_TYPE(r.hdr.r_info) == R_X86_64_PC64) {
+            rel_val -= r.vaddr; // relative
+            execute_relocation(exec_content, rel_val, rela_off, true);
+
+        } else if (ELF64_R_TYPE(r.hdr.r_info) == R_X86_64_32) {
+            execute_relocation(exec_content, rel_val, rela_off);
+
+        } else if (ELF64_R_TYPE(r.hdr.r_info) == R_X86_64_64) {
+            execute_relocation(exec_content, rel_val, rela_off, true);
+
+        } else {
+            assert(false);
+        }
+    }
+}
+
+
+void overwrite_start(std::string& exec_content, const std::string& rel_content) {
+    auto rel_symbols = get_symbols(rel_content);
+    Elf64_Ehdr ehdr = get_elf_header(exec_content);
+
+    for (const auto& pair : rel_symbols) {
+        if (pair.second == "_start") {
+            size_t moved_text_vaddr = SE::get_section_vaddr(exec_content, "MOVED.text");
+            ehdr.e_entry = moved_text_vaddr + pair.first.st_value;
+            exec_content.replace(0, sizeof(Elf64_Ehdr), (const char *) &ehdr, sizeof(Elf64_Ehdr));
+            return;
+        }
+    }
+    throw "Lack of _start symbol in ET_REL!";
+}
+
+
+
 int main() {
     auto input_pair = read_input_elfs("exec_syscall", "rel_syscall.o");
     
@@ -224,158 +400,7 @@ int main() {
 
     resolve_relocations(exec_content, rel_content);
 
+    overwrite_start(exec_content, rel_content);
+
     SE::dump(exec_content, "tescik");
-}
-
-std::string num2str32(int32_t num) {
-    std::stringstream ss, ss2;
-    ss << hex << num;
-    string str, s2;
-    
-    ss >> str;
-
-    for (std::size_t i = 0; i < str.length() - 1; ++++i) {
-        ss2 << static_cast<char>(str[i] * 16 + str[i + 1]);
-    }
-
-
-    ss2 >> s2;
-    return s2;
-}
-
-size_t vaddr2off(const std::string& exec_content, size_t vaddr) {
-    auto phdrs = get_phs(exec_content);
-
-    for (const auto& ph : phdrs) {
-        if (ph.p_type == PT_LOAD) {
-            if (vaddr >= ph.p_vaddr && vaddr <= ph.p_vaddr + ph.p_memsz) {
-                size_t off = vaddr - ph.p_vaddr;
-                return ph.p_offset + off;
-            }
-        }
-    }
-    throw "Internal error: Adress "//  + num2str(vaddr) + " isn't mapped into memory";
-}
-
-
-// #define ELF64_R_SYM(info) ((info)>>32)
-// #define ELF64_R_TYPE(info) ((Elf64_Word)(info))
-// #define ELF64_R_INFO(sym, type)
-
-std::vector<symbol_descr> get_symbols(const std::string& content) {
-    auto shdrs = SE::get_shdrs(content);
-    Elf64_Shdr symtab = SE::find_section(".symtab", shdrs);
-    std::string strtab_content = SE::get_section_content(content, ".strtab");
-    std::vector<symbol_descr> res;
-
-    assert(symtab.sh_size % sizeof(Elf64_Sym) == 0);
-    for (size_t i = 0; i < symtab.sh_size; i+=sizeof(Elf64_Sym)) {
-        Elf64_Sym sym;
-        size_t addr = i + symtab.sh_offset;
-        memcpy(&sym, &content.data()[addr], sizeof(Elf64_Sym));
-        std::string s(&strtab_content.data()[sym.st_name]); // to first null char
-        res.push_back(std::make_pair(sym, s));
-    }
-    return res;
-}
-
-symbol_descr find_corresponding_symbol(const std::string& exec_content, symbol_descr rel_sym) {
-    auto exec_symbols = get_symbols(exec_content);
-    if (rel_sym.second == "orig_start") {
-        rel_sym.second = "_start";
-    }
-    for (auto pair : exec_symbols) {
-        if (pair.second == rel_sym.second) {
-            return pair;
-        }
-    }
-    throw "No " + rel_sym.second + " symbol in ET_EXEC file!";
-}
-
-size_t get_rela_vaddr(const std::string& content, const std::string& sec_name, Elf64_Rela r) {
-    // auto sec_idx = SE::get_section_idx(content, sec_name);
-    size_t vaddr = SE::get_section_vaddr(content, sec_name);
-    cout << "off: " << r.r_offset << "\n";
-    return vaddr + r.r_offset; // TODO typy relokacji
-}
-
-std::vector<section_descr> get_rela_sections(const std::string& content) {
-    auto pairs = SE::get_shdrs(content);
-    std::vector<section_descr> res;
-    for (auto& pair : pairs) {
-        if (pair.first.sh_type == SHT_RELA)
-            res.push_back(pair);
-    }
-    assert(res.size() > 0);
-    return res;
-}
-
-std::vector<rela_descr> get_rela_entries(const std::string& exec_content, const std::string& rel_content) {
-    std::vector<rela_descr> res;
-    auto rela_sections = get_rela_sections(rel_content);
-    auto rel_symbols = get_symbols(rel_content);
-    for(auto& rela : rela_sections) {
-        assert(rela.second.substr(0, 5) == ".rela");
-        
-        Elf64_Rela r;
-        assert(rela.first.sh_size % sizeof(Elf64_Rela) == 0);
-        for (size_t i = 0; i < rela.first.sh_size; i+=sizeof(Elf64_Rela)) {
-            Elf64_Rela r;
-            size_t addr = i + rela.first.sh_offset;
-            memcpy(&r, &rel_content.data()[addr], sizeof(Elf64_Rela));
-
-            // cout << hex << "section_off: " << rela.first.sh_offset;
-            // cout << hex << "\naddr: " << addr;
-
-            assert(r.r_addend <= 8);
-            assert(r.r_offset < 0xff);
-
-            size_t sym_idx = ELF64_R_SYM(r.r_info);
-            symbol_descr rel_sym = rel_symbols[sym_idx];
-            // we have obtained UND symbol from ET_REL,
-            // now we must obtain corresponding one from
-            // ET_EXEC, thus find it by name
-            symbol_descr exec_sym = find_corresponding_symbol(exec_content, rel_sym);
-            std::string sec_name = rela.second.substr(5, std::string::npos);
-            sec_name.insert(0, "MOVED");
-
-            rela_descr res_rela {
-                .hdr = r,
-                .symbol = exec_sym,
-                .vaddr = get_rela_vaddr(exec_content, sec_name, r),
-            };
-            res.push_back(res_rela);
-        }
-    }
-    return res;
-}
-
-/**
- * TODO
- * dla każdej relokacji z ET_REL wylicz jej nowy adres, załaduj symbol o tej nazwie 
- * z ET_EXEC (jego adres) we wskazane miejsce (addend).
- * */
-void resolve_relocations(std::string& exec_content, const std::string& rel_content) {
-    auto symbols = get_symbols(exec_content);
-    auto relas = get_rela_entries(exec_content, rel_content);
-    cout << "REL:\n";
-    for (rela_descr r : relas) {
-        if (ELF64_R_TYPE(r.hdr.r_info) == R_X86_64_PC32) {
-            size_t rela_off = vaddr2off(exec_content, r.vaddr);
-
-            cout << hex <<  "\nadres sybolu: " <<  r.symbol.first.st_value;
-            cout << hex << "\nadres pola: " << r.vaddr;
-            cout << hex << "\naddend: " << -1 * r.hdr.r_addend << "\n";
-            size_t RES = r.symbol.first.st_value - r.vaddr + r.hdr.r_addend;
-
-            stdd:string new_bytes = num2str32((int32_t) RES); // "XDDD";
-
-            cout << hex << "replacing bytes at " << rela_off << ", bytes:" << (int32_t) RES << ", " << new_bytes << "\n";
-
-            size_t s0 = exec_content.size();
-            exec_content.replace(rela_off, 4, new_bytes.data(), 4); // pos len const char*
-            assert (s0 == exec_content.size());
-        }
-    }
-    return;
 }
