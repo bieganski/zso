@@ -18,6 +18,9 @@
 
 #include <stddef.h>
 
+
+typedef SectionEditor SE;
+
 /** Print a demangled stack backtrace of the caller function to FILE* out. */
 static inline void print_stacktrace(FILE *out = stderr, unsigned int max_frames = 63)
 {
@@ -101,7 +104,7 @@ static inline void print_stacktrace(FILE *out = stderr, unsigned int max_frames 
 
 
 
-std::string SectionEditor::get_section_content(const std::string& content, Elf64_Shdr section_hdr) {
+std::string SE::get_section_content(const std::string& content, Elf64_Shdr section_hdr) {
     Elf64_Ehdr h = get_elf_header(content);
     int begin = section_hdr.sh_offset;
     // char _res[section_hdr.sh_size];
@@ -119,11 +122,11 @@ std::string SectionEditor::get_section_content(const std::string& content, Elf64
  * Get address of exact section header offset.
  * Called with num=0 returns adress of section header table.
  **/
-inline size_t SectionEditor::get_sh_offset(Elf64_Ehdr hdr, size_t num) {
+inline size_t SE::get_sh_offset(Elf64_Ehdr hdr, size_t num) {
     return hdr.e_shoff + (num * hdr.e_shentsize);
 }
 
-std::string SectionEditor::get_section_content(const std::string& content, const std::string& name) {
+std::string SE::get_section_content(const std::string& content, const std::string& name) {
     std::vector<section_descr> s_tbl = get_shdrs(content);
     Elf64_Shdr shdr = find_section(name, s_tbl);
     return get_section_content(content, shdr);
@@ -133,7 +136,7 @@ std::string SectionEditor::get_section_content(const std::string& content, const
 /**
  * Returns vector of all sections headers with it's names.
  **/
-std::vector<section_descr> SectionEditor::get_shdrs(const std::string& content) {
+std::vector<section_descr> SE::get_shdrs(const std::string& content) {
     Elf64_Ehdr h = get_elf_header(content);
     std::vector<Elf64_Shdr> s_hdrs;
     for (int i = 0; i < h.e_shnum; i++) {
@@ -162,12 +165,12 @@ std::vector<section_descr> SectionEditor::get_shdrs(const std::string& content) 
 /**
  * Returns last number of byte that belongs to given section.
  **/ 
-inline size_t SectionEditor::section_end_offset(Elf64_Shdr hdr) {
+inline size_t SE::section_end_offset(Elf64_Shdr hdr) {
     return hdr.sh_offset + hdr.sh_size;
 }
 
 
-size_t SectionEditor::find_section_idx(const std::string& name, const std::vector<section_descr>& sections) {
+size_t SE::find_section_idx(const std::string& name, const std::vector<section_descr>& sections) {
     for (size_t i  = 0; i < sections.size(); i++) {
         if (sections[i].second == name)
             return i;
@@ -175,8 +178,27 @@ size_t SectionEditor::find_section_idx(const std::string& name, const std::vecto
     throw ("find_section: Cannot find section " + name + "\n");
 }
 
-Elf64_Shdr SectionEditor::find_section(const std::string& name, const std::vector<section_descr>& sections) {
+
+size_t SE::get_section_idx(const std::string& content, const std::string& name) {
+    auto shdrs = SE::get_shdrs(content);
+    return SE::find_section_idx(name, shdrs);
+}
+
+
+Elf64_Shdr SE::find_section(const std::string& name, const std::vector<section_descr>& sections) {
     return sections[find_section_idx(name, sections)].first;
+}
+
+/**
+ * Used for finding ET_EXEC's mapped to virtual memory sections, thus
+ * assert with nonzero return.
+ */
+size_t SE::get_section_vaddr(const std::string& content, const std::string& name) {
+    std::cerr << "<<" << name << "<<\n";
+    auto shdrs = SE::get_shdrs(content);
+    auto shdr = SE::find_section(name, shdrs);
+    assert(shdr.sh_addr != 0);
+    return shdr.sh_addr;
 }
 
 
@@ -236,7 +258,6 @@ void SectionEditor::add_offset(std::string& content, const std::string& sec_name
     
 }
 
-typedef SectionEditor SE;
 
 // ASSUMPTION: section header table is at the very end of file
 void SectionEditor::append_sections(std::string& content, 

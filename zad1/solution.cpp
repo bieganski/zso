@@ -218,10 +218,41 @@ int main() {
     SE::dump(exec_content, "tescik");
 }
 
-using symtab_descr = std::pair<Elf64_Sym, std::string>;
-using rela_descr = std::pair<Elf64_Rela, std::string>;
+using symbol_descr = std::pair<Elf64_Sym, std::string>;
 
+typedef struct rela_descr {
+    Elf64_Rela hdr;
+    symbol_descr symbol;
+    size_t vaddr;
+    size_t relo_size;
+} rela_descr;
 
+// #define ELF64_R_SYM(info) ((info)>>32)
+// #define ELF64_R_TYPE(info) ((Elf64_Word)(info))
+// #define ELF64_R_INFO(sym, type)
+
+std::vector<symbol_descr> get_symbols(const std::string& content) {
+    auto shdrs = SE::get_shdrs(content);
+    Elf64_Shdr symtab = SE::find_section(".symtab", shdrs);
+    std::string strtab_content = SE::get_section_content(content, ".strtab");
+    std::vector<symbol_descr> res;
+
+    assert(symtab.sh_size % sizeof(Elf64_Sym) == 0);
+    for (size_t i = 0; i < symtab.sh_size; i+=sizeof(Elf64_Sym)) {
+        Elf64_Sym sym;
+        size_t addr = i + symtab.sh_offset;
+        memcpy(&sym, &content.data()[addr], sizeof(Elf64_Sym));
+        std::string s(&strtab_content.data()[sym.st_name]); // to first null char
+        res.push_back(std::make_pair(sym, s));
+    }
+    return res;
+}
+size_t get_rela_vaddr(const std::string& content, const std::string& sec_name, Elf64_Rela r) {
+    // auto sec_idx = SE::get_section_idx(content, sec_name);
+    size_t vaddr = SE::get_section_vaddr(content, sec_name);
+    cout << "off: " << r.r_offset << "\n";
+    return vaddr + r.r_offset; // TODO typy relokacji
+}
 
 std::vector<section_descr> get_rela_sections(const std::string& content) {
     auto pairs = SE::get_shdrs(content);
@@ -234,45 +265,40 @@ std::vector<section_descr> get_rela_sections(const std::string& content) {
     return res;
 }
 
-std::vector<rela_descr> get_rela_entries(const std::string& content) {
+std::vector<rela_descr> get_rela_entries(const std::string& exec_content, const std::string& rel_content) {
     std::vector<rela_descr> res;
-    auto rela_sections = get_rela_sections(content);
+    auto rela_sections = get_rela_sections(rel_content);
+    auto symbols = get_symbols(exec_content);
     for(auto& rela : rela_sections) {
         assert(rela.second.substr(0, 5) == ".rela");
+        
         Elf64_Rela r;
         assert(rela.first.sh_size % sizeof(Elf64_Rela) == 0);
         for (size_t i = 0; i < rela.first.sh_size; i+=sizeof(Elf64_Rela)) {
             Elf64_Rela r;
             size_t addr = i + rela.first.sh_offset;
-            memcpy(&r, &content.data()[addr], sizeof(Elf64_Sym));
+            memcpy(&r, &rel_content.data()[addr], sizeof(Elf64_Rela));
+
+            // cout << hex << "section_off: " << rela.first.sh_offset;
+            // cout << hex << "\naddr: " << addr;
+
+            assert(r.r_addend <= 8);
+            assert(r.r_offset < 0xff);
+
             size_t sym_idx = ELF64_R_SYM(r.r_info);
-            cout << sym_idx << ",";
+            symbol_descr sym = symbols[sym_idx];
+            std::string sec_name = rela.second.substr(5, std::string::npos);
+            sec_name.insert(0, "MOVED");
+
+            rela_descr res_rela {
+                .hdr = r,
+                .symbol = sym,
+                .vaddr = get_rela_vaddr(exec_content, sec_name, r),
+                .relo_size = 4
+            };
+            res.push_back(res_rela);
         }
     }
-    return res;
-}
-
-
-// #define ELF64_R_SYM(info) ((info)>>32)
-// #define ELF64_R_TYPE(info) ((Elf64_Word)(info))
-// #define ELF64_R_INFO(sym, type)
-
-std::vector<symtab_descr> get_symbols(const std::string& content) {
-    auto shdrs = SE::get_shdrs(content);
-    Elf64_Shdr symtab = SE::find_section(".symtab", shdrs);
-    std::string strtab_content = SE::get_section_content(content, ".strtab");
-    std::vector<symtab_descr> res;
-
-    assert(symtab.sh_size % sizeof(Elf64_Sym) == 0);
-
-    for (size_t i = 0; i < symtab.sh_size; i+=sizeof(Elf64_Sym)) {
-        Elf64_Sym sym;
-        size_t addr = i + symtab.sh_offset;
-        memcpy(&sym, &content.data()[addr], sizeof(Elf64_Sym));
-        std::string s(&strtab_content.data()[sym.st_name]); // to first null char
-        res.push_back(std::make_pair(sym, s));
-    }
-
     return res;
 }
 
@@ -283,8 +309,10 @@ std::vector<symtab_descr> get_symbols(const std::string& content) {
  * z ET_EXEC (jego adres) we wskazane miejsce (addend).
  * */
 void resolve_relocations(std::string& exec_content, const std::string& rel_content) {
-    // auto symbols = get_symbols(exec_content);
-    auto relas = get_rela_entries(exec_content);
-
+    auto symbols = get_symbols(exec_content);
+    auto relas = get_rela_entries(exec_content, rel_content);
+    for (auto r : relas) {
+        cout << hex << r.vaddr << "\n";
+    }
     return;
 }
