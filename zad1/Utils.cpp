@@ -17,6 +17,9 @@ void integrity_check(Elf64_Ehdr h) {
        h.e_ident[3] != 'F') {
         throw "Given file is not in ELF format!";
     }
+    if (h.e_machine != EM_X86_64) {
+        throw "Bad architecture type, x86_64 supported!";
+    }
 }
 
 /**
@@ -27,7 +30,6 @@ Elf64_Ehdr get_elf_header(const std::string& content) {
     Elf64_Ehdr header;
     
     std::memcpy(&header, content.data(), sizeof(Elf64_Ehdr));
-    // cout << hex << setfill('0') << setw(2) << header.e_ident ;
 
     return header;
 }

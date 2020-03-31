@@ -6,7 +6,7 @@
 #include <algorithm>
 
 #include <csignal>
-
+#include <stdlib.h>
 
 #include "Utils.hpp"
 #include "SectionEditor.hpp"
@@ -217,8 +217,6 @@ void SectionEditor::add_offset(std::string& content, const std::string& sec_name
 
     for (auto & sec_descr : sec_tbl) {
         if (sec_descr.second == sec_name) {
-            // edited one, change it's size
-            std::cout << "zwiekszam o " << num << "bajtow\n";
             sec_descr.first.sh_size += num;
         }
         else if (sec_descr.first.sh_offset > my_offset) {
@@ -238,7 +236,6 @@ void SectionEditor::add_offset(std::string& content, const std::string& sec_name
             p.p_offset += num;
             p.p_vaddr += num;
             p.p_paddr += num;
-            // std::cout << "zwiekszam offset o " << num << " dla naglowka o offsecie " << p.p_offset << "\n"; 
         }
     }
 
@@ -314,6 +311,10 @@ void SectionEditor::dump(const std::string& content, const std::string& out_file
     out.open(out_file_path);
     out << content;
     out.close();
+    // chmod(out_file_path.data(), 755);
+    std::string s("chmod 755 ");
+    s.append(out_file_path);
+    system(s.data());
 }
 
 size_t SectionEditor::append(std::string& content, const std::string& what) {

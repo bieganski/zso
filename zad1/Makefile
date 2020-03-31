@@ -7,6 +7,7 @@ all: solution
 
 solution:
 	$(CXX) $(CXXFLAGS) $(LIBS) solution.cpp -o $(TARGET)
+	cp postlinker z1/
 
 clean:
 	rm -f $(TARGET) 

@@ -5,6 +5,8 @@
 #include <cstring>
 #include <vector>
 #include <unistd.h>
+#include <sys/stat.h>
+
 
 #include "Utils.hpp"
 #include "SectionEditor.hpp"
@@ -42,9 +44,17 @@ std::pair<std::string, std::string> read_input_elfs(std::string exec_fname, std:
         exec_bin.close();
         rel_bin.close();
 
+        if (rel_content.size() == 0) {
+            throw rel_fname.data();
+        }
+
+        if (exec_content.size() == 0) {
+            throw exec_fname.data();
+        }
+
         return std::make_pair(exec_content, rel_content);
-    } catch (...) {
-        std::cerr << "ERROR: Cannot open given file!\n";
+    } catch (const char * f) {
+        std::cerr << "ERROR: Cannot open " << f << "!\n";
         exit(1);
     }
 }
@@ -142,13 +152,18 @@ symbol_descr find_corresponding_symbol(const std::string& exec_content, symbol_d
             return pair;
         }
     }
-    throw "No " + rel_sym.second + " symbol in ET_EXEC file!";
+    // here, we know that symbol we look for isn't present in ET_EXEC,
+    // thus we must modify one from ET_REL.
+    std::string new_section_name = "MOVED";
+    new_section_name.append(rel_sym.second);
+    rel_sym.first.st_shndx = SE::get_section_idx(exec_content, new_section_name);
+    std::cerr << "BIORE SYMBOL Z ET_REL: " << rel_sym.second << "\n";
+    // throw "No " + rel_sym.second + " symbol in ET_EXEC file!"; // TODO
 }
 
 size_t get_rela_vaddr(const std::string& content, const std::string& sec_name, Elf64_Rela r) {
     // auto sec_idx = SE::get_section_idx(content, sec_name);
     size_t vaddr = SE::get_section_vaddr(content, sec_name);
-    cout << "off: " << r.r_offset << "\n";
     return vaddr + r.r_offset; // TODO typy relokacji
 }
 
@@ -176,9 +191,6 @@ std::vector<rela_descr> get_rela_entries(const std::string& exec_content, const 
             Elf64_Rela r;
             size_t addr = i + rela.first.sh_offset;
             memcpy(&r, &rel_content.data()[addr], sizeof(Elf64_Rela));
-
-            // cout << hex << "section_off: " << rela.first.sh_offset;
-            // cout << hex << "\naddr: " << addr;
 
             assert(r.r_addend <= 8);
             assert(r.r_offset < 0xff);
@@ -219,17 +231,17 @@ void execute_relocation(std::string& content, size_t rel_val, size_t offset, boo
 
     ss << content.substr(0, offset);
     ss.write((const char *) &rel_val, num);
-    cout << "RELVAL: " << hex << rel_val << "\n";
-    auto __s = ss.str();
-    cout << hex <<  "wypisano bajty: " << __s.substr(__s.size() - 4, std::string::npos) << "\n";
+
+    // cout << "RELVAL: " << hex << rel_val << "\n";
+    // auto __s = ss.str();
+    // cout << hex <<  "wypisano bajty: " << __s.substr(__s.size() - 4, std::string::npos) << "\n";
+    
     ss << content.substr(offset + num, std::string::npos);
 
     content.clear();
     content = ss.str();
 
-    cout << s0 << ", " << content.size() << "\n";
-    cout << fflush;
-    // assert (s0 == content.size());
+    assert (s0 == content.size());
 }
 
 void resolve_relocations(std::string& exec_content, const std::string& rel_content) {
@@ -285,27 +297,27 @@ void overwrite_start(std::string& exec_content, const std::string& rel_content) 
 
 int main(int argc, char** argv) {
 
-    if (argc != 3) {
-        std::cerr << "Usgage: ./postlinker <ET_EXEC file> <ET_REL file> <target ET_EXEC file>\n";
+    if (argc != 4) {
+        std::cerr << "Usage: ./postlinker <ET_EXEC file> <ET_REL file> <target ET_EXEC file>\n";
         exit(1);
     }
 
-    auto input_pair = read_input_elfs(argv[0], argv[1]);
+    auto input_pair = read_input_elfs(argv[1], argv[2]);
     
     std::string exec_content = input_pair.first;
     std::string rel_content = input_pair.second;
 
     try {
         integrity_check(get_elf_header(exec_content));
-    } catch (...) {
-        std::cerr << "ET_EXEC input file is not in ELF format!\n";
+    } catch (const char * s) {
+        std::cerr << argv[1] << " error: " << s << "\n";
         exit(1);
     }
 
     try {
         integrity_check(get_elf_header(rel_content));
-    } catch (...) {
-        std::cerr << "ET_REL input file is not in ELF format!\n";
+    } catch (const char * s) {
+        std::cerr << argv[2] << " error: " << s << "\n";
         exit(1);
     }
 
@@ -422,5 +434,5 @@ int main(int argc, char** argv) {
 
     overwrite_start(exec_content, rel_content);
 
-    SE::dump(exec_content, argv[2]);
+    SE::dump(exec_content, argv[3]);
 }
