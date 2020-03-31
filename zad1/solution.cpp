@@ -210,28 +210,39 @@ std::vector<rela_descr> get_rela_entries(const std::string& exec_content, const 
  * stream's `write` method.
  * Does a lot of copies, may be slow for large binaries.
  */
-void execute_relocation(std::string& content, int32_t rel_val, size_t offset, bool rel64 = false) {
+void execute_relocation(std::string& content, size_t rel_val, size_t offset, bool rel64 = false) {
     std::stringstream ss;
 
     size_t num = rel64 ? 8 : 4;
-
+    // rel_val = rel64 ? rel_val : (int32_t) rel_val;
     size_t s0 = content.size();
+
     ss << content.substr(0, offset);
-    ss.write((const char*) &rel_val, num);
+    ss.write((const char *) &rel_val, num);
+    cout << "RELVAL: " << hex << rel_val << "\n";
+    auto __s = ss.str();
+    cout << hex <<  "wypisano bajty: " << __s.substr(__s.size() - 4, std::string::npos) << "\n";
     ss << content.substr(offset + num, std::string::npos);
+
     content.clear();
     content = ss.str();
-    assert (s0 == content.size());
+
+    cout << s0 << ", " << content.size() << "\n";
+    cout << fflush;
+    // assert (s0 == content.size());
 }
 
 void resolve_relocations(std::string& exec_content, const std::string& rel_content) {
     auto symbols = get_symbols(exec_content);
     auto relas = get_rela_entries(exec_content, rel_content);
 
+    size_t s0 = exec_content.size();
+
     for (rela_descr r : relas) {
         size_t rela_off = vaddr2off(exec_content, r.vaddr);
-        size_t rel_val = r.symbol.first.st_value + r.hdr.r_addend;
-
+        auto shdrs = SE::get_shdrs(exec_content);
+        size_t rel_val = r.symbol.first.st_value;
+        rel_val += r.hdr.r_addend;
         if (ELF64_R_TYPE(r.hdr.r_info) == R_X86_64_PC32) {
             rel_val -= r.vaddr; // relative
             execute_relocation(exec_content, rel_val, rela_off);
@@ -250,6 +261,8 @@ void resolve_relocations(std::string& exec_content, const std::string& rel_conte
             assert(false);
         }
     }
+
+    // assert(s0 == exec_content.size());
 }
 
 
@@ -265,13 +278,19 @@ void overwrite_start(std::string& exec_content, const std::string& rel_content) 
             return;
         }
     }
-    throw "Lack of _start symbol in ET_REL!";
+    std::cerr <<  "Lack of _start symbol in ET_REL! e_entry not overridden";
 }
 
 
 
-int main() {
-    auto input_pair = read_input_elfs("exec_syscall", "rel_syscall.o");
+int main(int argc, char** argv) {
+
+    if (argc != 3) {
+        std::cerr << "Usgage: ./postlinker <ET_EXEC file> <ET_REL file> <target ET_EXEC file>\n";
+        exit(1);
+    }
+
+    auto input_pair = read_input_elfs(argv[0], argv[1]);
     
     std::string exec_content = input_pair.first;
     std::string rel_content = input_pair.second;
@@ -346,6 +365,10 @@ int main() {
         .p_align = (Elf64_Xword) 1,
     };
 
+    // according to linker code, first PT_LOAD segment must containt 
+    // ELF header and program headers
+    begin_buf.append((const char*) &first_load, sizeof(Elf64_Phdr));
+
     for (auto& ph : phdrs) {
         if (ph.p_type == PT_PHDR) {
             size_t addr = EXEC_BASE - whole_size + exec_hdr.e_phoff;
@@ -356,32 +379,29 @@ int main() {
         }   
     }
 
-    // phdrs.insert(phdrs.begin(), first_load);
-
     // generate new program headers and add offsets to existing program headers table
     std::vector<Elf64_Phdr> new_phdrs;
+    size_t j = 0;
     for (const auto& pair: sections_to_move) {
         Elf64_Shdr shdr = pair.first;
+        size_t ADDR = j * 0x200000 + BASE_REL + shdr.sh_offset;
         Elf64_Phdr phdr {
             .p_type = PT_LOAD,
             .p_flags = get_phflags(shdr.sh_flags),
             .p_offset = whole_size + shdr.sh_offset,
-            .p_vaddr = BASE_REL + shdr.sh_offset,
-            .p_paddr = BASE_REL + shdr.sh_offset,
+            .p_vaddr = ADDR,
+            .p_paddr = ADDR,
             .p_filesz = shdr.sh_type & SHT_NOBITS ? 0 : shdr.sh_size,
             .p_memsz = shdr.sh_size,
-            .p_align = (Elf64_Xword) getpagesize(),
+            .p_align = 0x200000, // max page size
         };
+        j++;
         new_phdrs.push_back(phdr);
     }
 
     phdrs.insert(phdrs.end(), new_phdrs.begin(), new_phdrs.end());
-    for (size_t i = 0; i < 2; i++) {
-        size_t addr = exec_hdr.e_ehsize + i * exec_hdr.e_phentsize;
-        begin_buf.append((const char*) &phdrs[i], sizeof(Elf64_Phdr));
-    }
-    begin_buf.append((const char*) &first_load, sizeof(Elf64_Phdr));
-    for (size_t i = 2; i < phdrs.size(); i++) {
+
+    for (size_t i = 0; i < phdrs.size(); i++) {
         size_t addr = exec_hdr.e_ehsize + i * exec_hdr.e_phentsize;
         begin_buf.append((const char*) &phdrs[i], sizeof(Elf64_Phdr));
     }
@@ -402,5 +422,5 @@ int main() {
 
     overwrite_start(exec_content, rel_content);
 
-    SE::dump(exec_content, "tescik");
+    SE::dump(exec_content, argv[2]);
 }

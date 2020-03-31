@@ -1,12 +1,12 @@
 CXX := g++
 CXXFLAGS := -O0 -fno-common -no-pie -fno-pie -export-dynamic
-TARGET := solution
+TARGET := postlinker
 LIBS := SectionEditor.cpp Utils.cpp
 
 all: solution
 
 solution:
-	$(CXX) $(CXXFLAGS) $(LIBS) $(TARGET).cpp -o $(TARGET)
+	$(CXX) $(CXXFLAGS) $(LIBS) solution.cpp -o $(TARGET)
 
 clean:
 	rm -f $(TARGET) 
