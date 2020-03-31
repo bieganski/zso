@@ -175,6 +175,7 @@ size_t SE::find_section_idx(const std::string& name, const std::vector<section_d
         if (sections[i].second == name)
             return i;
     }
+    std::cerr << "find_section: Cannot find section " + name + "\n"; 
     throw ("find_section: Cannot find section " + name + "\n");
 }
 
@@ -290,7 +291,7 @@ void SectionEditor::append_sections(std::string& content,
 
     for (size_t i = 0; i < new_sections.size(); i++) {
         Elf64_Shdr& hdr = new_sections[i].first;
-        hdr.sh_addr = SE::MOVE_BASE + off;
+        hdr.sh_addr = SE::MOVE_BASE + off + i * 0x200000;
         hdr.sh_offset = off;
         hdr.sh_name = names_positions[i];
 

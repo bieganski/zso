@@ -102,8 +102,6 @@ Elf64_Word get_phflags(Elf64_Xword sh_flags) {
     return flags;
 }
 
-void resolve_relocations(std::string&, const std::string&);
-
 size_t vaddr2off(const std::string& exec_content, size_t vaddr) {
     auto phdrs = get_phs(exec_content);
 
@@ -116,8 +114,8 @@ size_t vaddr2off(const std::string& exec_content, size_t vaddr) {
         }
     }
     std::stringstream err;
-    err << "Internal error: Adress " << vaddr <<  " isn't mapped into memory";
-    throw err.str();
+    std::cerr << "Internal error: Adress " << hex << vaddr <<  " isn't mapped into memory";
+    exit(1);
 }
 
 
@@ -152,19 +150,12 @@ symbol_descr find_corresponding_symbol(const std::string& exec_content, symbol_d
             return pair;
         }
     }
-    // here, we know that symbol we look for isn't present in ET_EXEC,
-    // thus we must modify one from ET_REL.
-    std::string new_section_name = "MOVED";
-    new_section_name.append(rel_sym.second);
-    rel_sym.first.st_shndx = SE::get_section_idx(exec_content, new_section_name);
-    std::cerr << "BIORE SYMBOL Z ET_REL: " << rel_sym.second << "\n";
-    // throw "No " + rel_sym.second + " symbol in ET_EXEC file!"; // TODO
+    throw "No " + rel_sym.second + " symbol in ET_EXEC file!"; // TODO
 }
 
 size_t get_rela_vaddr(const std::string& content, const std::string& sec_name, Elf64_Rela r) {
-    // auto sec_idx = SE::get_section_idx(content, sec_name);
     size_t vaddr = SE::get_section_vaddr(content, sec_name);
-    return vaddr + r.r_offset; // TODO typy relokacji
+    return vaddr + r.r_offset;
 }
 
 std::vector<section_descr> get_rela_sections(const std::string& content) {
@@ -192,21 +183,45 @@ std::vector<rela_descr> get_rela_entries(const std::string& exec_content, const 
             size_t addr = i + rela.first.sh_offset;
             memcpy(&r, &rel_content.data()[addr], sizeof(Elf64_Rela));
 
-            assert(r.r_addend <= 8);
-            assert(r.r_offset < 0xff);
-
             size_t sym_idx = ELF64_R_SYM(r.r_info);
             symbol_descr rel_sym = rel_symbols[sym_idx];
-            // we have obtained UND symbol from ET_REL,
-            // now we must obtain corresponding one from
-            // ET_EXEC, thus find it by name
-            symbol_descr exec_sym = find_corresponding_symbol(exec_content, rel_sym);
+
+            // now, we have symbol that maybe is in ET_EXEC, 
+            // but first check whether it occurs in ET_REL.
+            symbol_descr result_sym;
+
             std::string sec_name = rela.second.substr(5, std::string::npos);
+            if (sec_name == ".eh_frame") {
+                continue;
+            }
             sec_name.insert(0, "MOVED");
+
+            bool from_rel = false;
+            for (auto pair : rel_symbols) {
+                if (pair.second == rel_sym.second && rel_sym.first.st_shndx != SHN_UNDEF) {
+                    // here we go, simply we must change section name to new one
+                    result_sym = rel_sym;
+                    std::string sym_sec_name = SE::get_shdrs(rel_content)[rel_sym.first.st_shndx].second;
+                    sym_sec_name.insert(0, "MOVED");
+                    cout << "new sec_name: " << sym_sec_name << "\n";
+
+                    size_t rel_offset = rel_sym.first.st_value; // in ET_REL st_value field keeps offset from `st_shndx` begin
+                    result_sym.first.st_value = rel_offset + SE::get_section_vaddr(exec_content, sym_sec_name);
+                    cout << hex <<  "a wiec tak: offset: " << rel_offset << ", sectionvaddr: " << SE::get_section_vaddr(exec_content, sec_name) << "\n";
+                    from_rel = true;
+                }
+            }
+            if (!from_rel) {
+                // we have obtained UND symbol from ET_REL,
+                // now we must obtain corresponding one from
+                // ET_EXEC, thus find it by name
+                result_sym = find_corresponding_symbol(exec_content, rel_sym);
+            }
+
 
             rela_descr res_rela {
                 .hdr = r,
-                .symbol = exec_sym,
+                .symbol = result_sym,
                 .vaddr = get_rela_vaddr(exec_content, sec_name, r),
             };
             res.push_back(res_rela);
@@ -269,12 +284,14 @@ void resolve_relocations(std::string& exec_content, const std::string& rel_conte
         } else if (ELF64_R_TYPE(r.hdr.r_info) == R_X86_64_64) {
             execute_relocation(exec_content, rel_val, rela_off, true);
 
+        } else if (ELF64_R_TYPE(r.hdr.r_info) == R_X86_64_PLT32) {
+            rel_val -= r.vaddr; // relative
+            execute_relocation(exec_content, rel_val, rela_off);
         } else {
-            assert(false);
+            std::cerr << "[INFO] omitting relocation for symbol " << r.symbol.second << "\n";
         }
     }
-
-    // assert(s0 == exec_content.size());
+    assert(s0 == exec_content.size());
 }
 
 
