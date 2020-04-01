@@ -21,89 +21,6 @@
 
 typedef SectionEditor SE;
 
-/** Print a demangled stack backtrace of the caller function to FILE* out. */
-static inline void print_stacktrace(FILE *out = stderr, unsigned int max_frames = 63)
-{
-    fprintf(out, "stack trace:\n");
-
-    // storage array for stack trace address data
-    void* addrlist[max_frames+1];
-
-    // retrieve current stack addresses
-    int addrlen = backtrace(addrlist, sizeof(addrlist) / sizeof(void*));
-
-    if (addrlen == 0) {
-	fprintf(out, "  <empty, possibly corrupt>\n");
-	return;
-    }
-
-    // resolve addresses into strings containing "filename(function+address)",
-    // this array must be free()-ed
-    char** symbollist = backtrace_symbols(addrlist, addrlen);
-
-    // allocate string which will be filled with the demangled function name
-    size_t funcnamesize = 256;
-    char* funcname = (char*)malloc(funcnamesize);
-
-    // iterate over the returned symbol lines. skip the first, it is the
-    // address of this function.
-    for (int i = 1; i < addrlen; i++)
-    {
-	char *begin_name = 0, *begin_offset = 0, *end_offset = 0;
-
-	// find parentheses and +address offset surrounding the mangled name:
-	// ./module(function+0x15c) [0x8048a6d]
-	for (char *p = symbollist[i]; *p; ++p)
-	{
-	    if (*p == '(')
-		begin_name = p;
-	    else if (*p == '+')
-		begin_offset = p;
-	    else if (*p == ')' && begin_offset) {
-		end_offset = p;
-		break;
-	    }
-	}
-
-	if (begin_name && begin_offset && end_offset
-	    && begin_name < begin_offset)
-	{
-	    *begin_name++ = '\0';
-	    *begin_offset++ = '\0';
-	    *end_offset = '\0';
-
-	    // mangled name is now in [begin_name, begin_offset) and caller
-	    // offset in [begin_offset, end_offset). now apply
-	    // __cxa_demangle():
-
-	    int status;
-	    char* ret = abi::__cxa_demangle(begin_name,
-					    funcname, &funcnamesize, &status);
-	    if (status == 0) {
-		funcname = ret; // use possibly realloc()-ed string
-		fprintf(out, "  %s : %s+%s\n",
-			symbollist[i], funcname, begin_offset);
-	    }
-	    else {
-		// demangling failed. Output function name as a C function with
-		// no arguments.
-		fprintf(out, "  %s : %s()+%s\n",
-			symbollist[i], begin_name, begin_offset);
-	    }
-	}
-	else
-	{
-	    // couldn't parse the line? print the whole line.
-	    fprintf(out, "  %s\n", symbollist[i]);
-	}
-    }
-
-    free(funcname);
-    free(symbollist);
-}
-
-
-
 std::string SE::get_section_content(const std::string& content, Elf64_Shdr section_hdr) {
     Elf64_Ehdr h = get_elf_header(content);
     int begin = section_hdr.sh_offset;
@@ -114,8 +31,6 @@ std::string SE::get_section_content(const std::string& content, Elf64_Shdr secti
     assert(res.size() == section_hdr.sh_size);
     return res;
 }
-
-// SectionEditor::SectionEditor(const std::string elf) : content(elf) {};
 
 
 /**
@@ -148,6 +63,7 @@ std::vector<section_descr> SE::get_shdrs(const std::string& content) {
     std::vector<section_descr> res;
     
     std::string shstr_content = get_section_content(content, s_hdrs[h.e_shstrndx]);
+
     for (Elf64_Shdr s_hdr : s_hdrs) {
         // now, we have to be careful, because our 'content' string
         // contains null characters. We use C-functions to copy bytes 
@@ -161,6 +77,11 @@ std::vector<section_descr> SE::get_shdrs(const std::string& content) {
     return res;
 }
 
+bool sec_hdr_tbl_at_very_end(const std::string& content) {
+    Elf64_Ehdr ehdr = get_elf_header(content);
+    bool res = ehdr.e_shoff + ehdr.e_shnum * ehdr.e_shentsize == content.size();
+    return res;
+}
 
 /**
  * Returns last number of byte that belongs to given section.
@@ -169,13 +90,11 @@ inline size_t SE::section_end_offset(Elf64_Shdr hdr) {
     return hdr.sh_offset + hdr.sh_size;
 }
 
-
 size_t SE::find_section_idx(const std::string& name, const std::vector<section_descr>& sections) {
     for (size_t i  = 0; i < sections.size(); i++) {
         if (sections[i].second == name)
             return i;
     }
-    std::cerr << "find_section: Cannot find section " + name + "\n"; 
     throw ("find_section: Cannot find section " + name + "\n");
 }
 
@@ -195,7 +114,6 @@ Elf64_Shdr SE::find_section(const std::string& name, const std::vector<section_d
  * assert with nonzero return.
  */
 size_t SE::get_section_vaddr(const std::string& content, const std::string& name) {
-    std::cerr << "<<" << name << "<<\n";
     auto shdrs = SE::get_shdrs(content);
     auto shdr = SE::find_section(name, shdrs);
     assert(shdr.sh_addr != 0);
@@ -203,65 +121,26 @@ size_t SE::get_section_vaddr(const std::string& content, const std::string& name
 }
 
 
-/**
- *  *Adds offset to all sections after `sec_name` and increase `sec_name`'s size
- * by `num` value.
- *  *Updates indexes in .shstrtab (it occurs as a last section).
- *  *Updates elf header's .shstrtab offset.
- **/
-void SectionEditor::add_offset(std::string& content, const std::string& sec_name, size_t num) {
-    
-    std::vector<section_descr> sec_tbl = get_shdrs(content);
-    Elf64_Shdr sec_hdr = find_section(sec_name, sec_tbl);
-
-    size_t my_offset = sec_hdr.sh_offset;
-
-    for (auto & sec_descr : sec_tbl) {
-        if (sec_descr.second == sec_name) {
-            sec_descr.first.sh_size += num;
-        }
-        else if (sec_descr.first.sh_offset > my_offset) {
-            // section is placed behind edited one
-            // increase it's offset by number of bytes inserted
-            sec_descr.first.sh_offset += num;
-        }
-    }
-
-    replace_sec_hdr_tbl(content, sec_tbl);
-
-    auto phdr_tbl = get_phs(content);
-    // auto map = sec2seg_map(content);
-    // we added bytes to section `sec_name`, that is
-    for (Elf64_Phdr& p : phdr_tbl) {
-        if (p.p_offset >= sec_hdr.sh_offset) {
-            p.p_offset += num;
-            p.p_vaddr += num;
-            p.p_paddr += num;
-        }
-    }
-
-    replace_pdhr_tbl(content, phdr_tbl);
-
-    // update elf header .shstrtab offset
-
-    Elf64_Ehdr ehdr = get_elf_header(content);
-    
-    if (ehdr.e_phoff > my_offset)
-        ehdr.e_phoff += num;
-        
-    if (ehdr.e_shoff > my_offset)
-        ehdr.e_shoff += num;
-  
-    content.replace(0, ehdr.e_ehsize, (const char*) &ehdr, ehdr.e_ehsize);
-    
-}
-
-
-// ASSUMPTION: section header table is at the very end of file
 void SectionEditor::append_sections(std::string& content, 
                                     std::vector<section_descr>& new_sections, 
-                                    const std::vector<std::string>& new_sections_contents,
-                                    const std::vector<size_t>& names_positions) {
+                                    const std::vector<std::string>& new_sections_contents) {
+    if (!sec_hdr_tbl_at_very_end(content)) {
+        Elf64_Ehdr ehdr = get_elf_header(content);
+        std::string sec_hdr_table = content.substr(ehdr.e_shoff, ehdr.e_shentsize * ehdr.e_shnum);
+        size_t pos0 = content.size(); 
+        content.append(sec_hdr_table);
+        ehdr.e_shoff = pos0;
+        content.replace(0, sizeof(Elf64_Ehdr), (const char *) &ehdr, sizeof(Elf64_Ehdr));
+    }
+    assert(sec_hdr_tbl_at_very_end(content));
+    SE::append_sections_help(content, new_sections, new_sections_contents);
+}
+
+// ASSUMPTION: section header table is at the very end of file
+// TODO secitons align
+void SectionEditor::append_sections_help(std::string& content, 
+                                    std::vector<section_descr>& new_sections, 
+                                    const std::vector<std::string>& new_sections_contents) {
     Elf64_Ehdr e_hdr = get_elf_header(content);
 
     assert(new_sections_contents.size() == new_sections.size());
@@ -273,12 +152,10 @@ void SectionEditor::append_sections(std::string& content,
 
     assert(content.size() == e_hdr.e_shoff);
     size_t pos0 = content.size();
-    // size_t name_idx = e_hdr.e_shnum; // first index of string array, will be useful later, for new sections
     
     for (size_t i = 0; i < new_sections.size(); i++) {
         content.append(new_sections_contents[i]);
     }
-
 
     e_hdr.e_shnum += new_sections.size();
     e_hdr.e_shoff = content.size();
@@ -293,7 +170,7 @@ void SectionEditor::append_sections(std::string& content,
         Elf64_Shdr& hdr = new_sections[i].first;
         hdr.sh_addr = BASE_REL + off + i * 0x200000;
         hdr.sh_offset = off;
-        hdr.sh_name = names_positions[i];
+        hdr.sh_name = 0; // that value will be fullfilled by `add_moved_section_names` function
 
         off += new_sections_contents[i].size();
     }
@@ -335,57 +212,69 @@ inline size_t get_section_offset(const std::string& content, const std::string s
  * ".shstrtab" is the last section, after it is only section header table.
  *  Returns vector of positions relevant to .shstrtab offset.
  */
-std::vector<size_t> SectionEditor::add_moved_section_names(std::string& content, std::vector<section_descr>& sections_to_move, const std::string& prefix) {
+
+
+size_t section_insertion_addr(const std::string& content, Elf64_Shdr to_be_appended) {
+    const size_t align = to_be_appended.sh_addralign;
+    size_t proper_addr = content.size();
+    for(uint i = 0; i <= align; i++) {
+        if (proper_addr % align ==0)
+            return proper_addr;
+        proper_addr++;
+    }
+}
+
+void SectionEditor::add_moved_section_names(std::string& content, 
+                                                           std::vector<section_descr>& sections_to_move, 
+                                                           const std::string& prefix) {
     std::vector<size_t> res;
 
     size_t s0 = content.size();
-    size_t shstrtab_off = get_section_offset(content, ".shstrtab");
+    Elf64_Shdr shstrtab_hdr = SE::find_section(".shstrtab", SE::get_shdrs(content));
+    size_t shstrtab_off = shstrtab_hdr.sh_offset;
+    size_t shstrtab_size = shstrtab_hdr.sh_size;
     Elf64_Ehdr ehdr = get_elf_header(content);
-    
-    size_t cut_off = 0;
-    for (auto& pair : SE::get_shdrs(content)) {
-        if (pair.second == ".shstrtab") {
-            cut_off = pair.first.sh_offset + pair.first.sh_size; 
-        }
-    }
-    assert(cut_off > 0);
-    
-    std::string cutted_str = content.substr(cut_off, std::string::npos);
-    assert(cutted_str.size() >= ehdr.e_shnum * ehdr.e_shentsize);
-    content.erase(cut_off, std::string::npos);
 
-    assert(content.size() + cutted_str.size() == s0);
+    std::string shstrtab_content = content.substr(shstrtab_off, shstrtab_size);
+
+    content.replace(shstrtab_off, shstrtab_size, shstrtab_size, '\0'); // we want use it anymore
+
+    size_t shstrtab_new_offset = section_insertion_addr(content, shstrtab_hdr);
+    content.append(shstrtab_new_offset - content.size(), '\0');
+    assert(content.size() == shstrtab_new_offset);
+    content.append(shstrtab_content);
 
     size_t sum_size = 0;
     for (auto& pair : sections_to_move) {
         std::string& name = pair.second;
 
         std::string new_name = prefix + name;
+
+        size_t name_pos = content.size() - shstrtab_new_offset;
         
-        res.push_back(content.size() - shstrtab_off);
+        res.push_back(name_pos);
         content.append(new_name.data(), new_name.size());
 
         content.append("\0", 1);
         sum_size += new_name.size() + 1;
     }
 
-    ehdr.e_shoff += sum_size;
-    content.append(cutted_str);
-    assert(content.size() == s0 + sum_size);
-
-    content.replace(0, sizeof(Elf64_Ehdr), (const char*) &ehdr, sizeof(Elf64_Ehdr));
+    size_t shoff = SE::get_sh_offset(ehdr, ehdr.e_shstrndx);
+    Elf64_Shdr tmp;
+    std::memcpy(&tmp, &content[shoff], sizeof(Elf64_Shdr));
+    tmp.sh_offset = shstrtab_new_offset;
+    tmp.sh_size += sum_size;
+    content.replace(shoff, sizeof(Elf64_Shdr), (const char *)&tmp, sizeof(Elf64_Shdr));
 
     auto sec_hdrs = SE::get_shdrs(content);
 
-    for (auto& pair : sec_hdrs) {
-        if (pair.second == ".shstrtab") {
-            pair.first.sh_size += sum_size;
-        }
+    auto j = 0;
+    for (uint i = sec_hdrs.size() - sections_to_move.size(); i < sec_hdrs.size(); i++) {
+        sec_hdrs[i].first.sh_name = res[j];
+        j++;
     }
 
     replace_sec_hdr_tbl(content, sec_hdrs);
-
-    return res;
 }
 
 

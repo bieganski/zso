@@ -115,16 +115,9 @@ size_t vaddr2off(const std::string& exec_content, size_t vaddr) {
             }
         }
     }
-    SE::dump(exec_content, "kurde");
     std::stringstream err;
     std::cerr << "Internal error: Adress " << hex << vaddr <<  " isn't mapped into memory";
-    exit(1);
 }
-
-
-// #define ELF64_R_SYM(info) ((info)>>32)
-// #define ELF64_R_TYPE(info) ((Elf64_Word)(info))
-// #define ELF64_R_INFO(sym, type)
 
 std::vector<symbol_descr> get_symbols(const std::string& content) {
     auto shdrs = SE::get_shdrs(content);
@@ -153,7 +146,7 @@ symbol_descr find_corresponding_symbol(const std::string& exec_content, symbol_d
             return pair;
         }
     }
-    std::cerr << "Linking error: No " + rel_sym.second + " symbol in ET_EXEC file!";
+    std::cerr << "Linking error: Malformed binary: No " + rel_sym.second + " symbol in ET_EXEC file!";
     exit(1);
 }
 
@@ -301,7 +294,7 @@ void resolve_relocations(std::string& exec_content, const std::string& rel_conte
         } else if (ELF64_R_TYPE(r.hdr.r_info) == R_X86_64_32S) {
             execute_relocation(exec_content, rel_val, rela_off);
         } else {
-            std::cerr << "[INFO] omitting relocation for symbol " << r.symbol.second << "\n";
+            std::cerr << "[INFO] omitting relocation for symbol " << r.symbol.second << " (not supported type)\n";
         }
     }
     assert(s0 == exec_content.size());
@@ -376,10 +369,8 @@ int main(int argc, char** argv) {
 
     set_base(exec_content);
 
-    std::vector<section_descr> section_hdrs = SE::get_shdrs(rel_content);
-
     std::vector<section_descr> sections_to_move;
-    for (auto pair : section_hdrs) {
+    for (auto pair : SE::get_shdrs(rel_content)) {
         Elf64_Shdr hdr = pair.first;
         if (hdr.sh_flags & SHF_ALLOC) {
             sections_to_move.push_back(pair);
@@ -395,9 +386,9 @@ int main(int argc, char** argv) {
         moved_sections_contents.push_back(SE::get_section_content(rel_content, name));
     }
 
-    auto name_positions = SE::add_moved_section_names(exec_content, sections_to_move, PREFIX);
+    SE::append_sections(exec_content, sections_to_move, moved_sections_contents);
 
-    SE::append_sections(exec_content, sections_to_move, moved_sections_contents, name_positions);
+    SE::add_moved_section_names(exec_content, sections_to_move, PREFIX);
 
     // now, we will be inserting place for new program headers
 
@@ -407,9 +398,6 @@ int main(int argc, char** argv) {
     size_t num_pages_begin = compute_num_additional_pages(num_new_phdrs, exec_hdr.e_phentsize);
     size_t whole_size = getpagesize() * num_pages_begin;
     std::string begin_buf;
-
-    // new elf header and program headers
-    // TODO increase all offsets (both PHdrs, SHdrs)
 
     exec_hdr.e_shoff += whole_size;
     exec_hdr.e_phoff = exec_hdr.e_ehsize; // just behind elf header

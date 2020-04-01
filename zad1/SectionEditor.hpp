@@ -15,6 +15,10 @@ class SectionEditor {
 private:
     static std::string get_section_content(const std::string& content, Elf64_Shdr section_hdr);
 
+
+    static void append_sections_help(std::string& content, 
+                                    std::vector<section_descr>& new_sections, 
+                                    const std::vector<std::string>& new_sections_contents);
 public:
 
     static void print_section_header(Elf64_Shdr hdr) {
@@ -55,8 +59,7 @@ public:
 
     static void append_sections(std::string& content, 
                                     std::vector<section_descr>& new_sections, 
-                                    const std::vector<std::string>& new_sections_contents,
-                                    const std::vector<size_t>& names_positions);
+                                    const std::vector<std::string>& new_sections_contents);
     /**
      * Inserts `what` string to end of `sec_name` section.
      * Returns position of insertion beginning.
@@ -81,7 +84,7 @@ public:
     /**
      * Returns vector of positions of inserted section names.
      */
-    static std::vector<size_t> add_moved_section_names(std::string&, std::vector<section_descr>&, const std::string& prefix);
+    static void add_moved_section_names(std::string&, std::vector<section_descr>&, const std::string& prefix);
 
     static void replace_sec_hdr_tbl(std::string& content, std::vector<section_descr>& new_tbl);
 
