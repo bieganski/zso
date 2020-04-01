@@ -28,6 +28,23 @@ const static size_t BASE_REL = 0x800000;
 
 const static u_int64_t EXEC_BASE = 0x400000;
 
+std::string random_string( size_t length ) {
+    auto randchar = []() -> char {
+        const char charset[] =
+        "0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz";
+        const size_t max_index = (sizeof(charset) - 1);
+        return charset[ rand() % max_index ];
+    };
+    std::string str(length,0);
+    std::generate_n( str.begin(), length, randchar );
+    return str;
+}
+
+std::string PREFIX = random_string(5);
+
+
 std::pair<std::string, std::string> read_input_elfs(std::string exec_fname, std::string rel_fname) {
 
     try {
@@ -286,6 +303,8 @@ void resolve_relocations(std::string& exec_content, const std::string& rel_conte
 
         } else if (ELF64_R_TYPE(r.hdr.r_info) == R_X86_64_PLT32) {
             rel_val -= r.vaddr; // relative
+            execute_relocation(exec_content, rel_val, rela_off);
+        } else if (ELF64_R_TYPE(r.hdr.r_info) == R_X86_64_32S) {
             execute_relocation(exec_content, rel_val, rela_off);
         } else {
             std::cerr << "[INFO] omitting relocation for symbol " << r.symbol.second << "\n";
