@@ -59,12 +59,15 @@ std::vector<Elf64_Phdr> get_phs(const std::string& content) {
     return res;
 }
 
+/**
+ * Only same-size array replacing supported!
+ */
 void replace_pdhr_tbl(std::string& content, std::vector<Elf64_Phdr> new_tbl) {
     Elf64_Ehdr ehdr = get_elf_header(content);
     size_t tbl_off = ehdr.e_phoff;
     size_t tbl_size = ehdr.e_phentsize * ehdr.e_phnum;
 
-assert(ehdr.e_phnum == new_tbl.size()); // TODO
+assert(ehdr.e_phnum == new_tbl.size());
     std::string res;
     for (Elf64_Phdr entry : new_tbl) {
         res.append((const char*) &entry, ehdr.e_phentsize);
@@ -97,16 +100,6 @@ std::map<Elf64_Phdr, std::vector<Elf64_Shdr>, DataComparer<Elf64_Phdr>> sec2seg_
             }
         }
     }
-
-    // std::cout << "MAPA ==   == = = = == = = == =:\n";
-    // for(auto it = res.begin(); it != res.end(); ++it)
-    // {
-    //     print_program_header(it->first);
-    //     for (auto el : it->second) {
-    //         se.print_section_header(el);
-    //     }
-        
-    // }
 
     return res;
 }

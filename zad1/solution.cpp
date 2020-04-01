@@ -200,11 +200,10 @@ std::vector<rela_descr> get_rela_entries(const std::string& exec_content, const 
                     result_sym = rel_sym;
                     std::string sym_sec_name = SE::get_shdrs(rel_content)[rel_sym.first.st_shndx].second;
                     sym_sec_name.insert(0, PREFIX);
-                    cout << "new sec_name: " << sym_sec_name << "\n";
 
                     size_t rel_offset = rel_sym.first.st_value; // in ET_REL st_value field keeps offset from `st_shndx` begin
                     result_sym.first.st_value = rel_offset + SE::get_section_vaddr(exec_content, sym_sec_name);
-                    cout << hex <<  "a wiec tak: offset: " << rel_offset << ", sectionvaddr: " << SE::get_section_vaddr(exec_content, sec_name) << "\n";
+                    
                     from_rel = true;
                 }
             }
@@ -215,8 +214,6 @@ std::vector<rela_descr> get_rela_entries(const std::string& exec_content, const 
                 result_sym = find_corresponding_symbol(exec_content, rel_sym);
             }
 
-            cout << "szukalem relokacji dla sekcji " << sec_name << ", off: " << r.r_offset << "\n";
-            cout << "\nznalazlem dla adresu " << get_rela_vaddr(exec_content, sec_name, r) << "\n";
             rela_descr res_rela {
                 .hdr = r,
                 .symbol = result_sym,
@@ -320,7 +317,7 @@ void overwrite_start(std::string& exec_content, const std::string& rel_content) 
         }
     }
     if (!is_start) {
-        std::cerr <<  "Lack of _start symbol in ET_REL! e_entry not overridden"; // OTOODOROROOORORO
+        std::cerr <<  "[INFO] Lack of _start symbol in ET_REL! e_entry not overridden\n";
         return;
     }
     
@@ -329,7 +326,6 @@ void overwrite_start(std::string& exec_content, const std::string& rel_content) 
         if (exec_symbols[i].second == "_start") {
             Elf64_Sym s = exec_symbols[i].first; // we need to change it's offset and shndx
             size_t idx = SE::get_section_idx(exec_content, new_start_section);
-            cout << "new start section: " << new_start_section << "\n";
             s.st_shndx = idx;
             s.st_value = rel_off + SE::get_section_vaddr(exec_content, new_start_section);
             Elf64_Shdr symtab = SE::find_section(".symtab", SE::get_shdrs(exec_content));
