@@ -24,11 +24,17 @@ typedef struct rela_descr {
 
 typedef SectionEditor SE;
 
-const static size_t BASE_REL = 0x800000;
+size_t BASE_REL;
 
 const static u_int64_t EXEC_BASE = 0x400000;
 
 std::string random_string( size_t length ) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+
+    /* using nano-seconds instead of seconds */
+    srand((time_t)ts.tv_nsec);
+
     auto randchar = []() -> char {
         const char charset[] =
         "0123456789"
@@ -76,30 +82,9 @@ std::pair<std::string, std::string> read_input_elfs(std::string exec_fname, std:
     }
 }
 
-std::vector<section_descr> update_section_hdrs_move(const std::vector<section_descr>& sections_to_move, 
-    size_t off,
-    size_t name_idx) {
-
-        std::vector<section_descr> res(sections_to_move);
-
-        for (auto& pair : res) {
-            Elf64_Shdr& hdr = pair.first;
-            string& name = pair.second;
-            hdr.sh_addr = BASE_REL + off;
-            hdr.sh_offset = off;
-            hdr.sh_name = name_idx;
-
-            name_idx++;
-            off += hdr.sh_size;
-        }
-
-        return res;
-}
-
 size_t compute_num_additional_pages(size_t num_new_load_sections, size_t phentsize) {
     size_t additional_bytes = num_new_load_sections * phentsize;
     size_t num_pages = additional_bytes / getpagesize() + 1;
-    assert (num_pages == 1); // TODO wywalić
     return num_pages;
 }
 
@@ -130,6 +115,7 @@ size_t vaddr2off(const std::string& exec_content, size_t vaddr) {
             }
         }
     }
+    SE::dump(exec_content, "kurde");
     std::stringstream err;
     std::cerr << "Internal error: Adress " << hex << vaddr <<  " isn't mapped into memory";
     exit(1);
@@ -167,7 +153,8 @@ symbol_descr find_corresponding_symbol(const std::string& exec_content, symbol_d
             return pair;
         }
     }
-    throw "No " + rel_sym.second + " symbol in ET_EXEC file!"; // TODO
+    std::cerr << "Linking error: No " + rel_sym.second + " symbol in ET_EXEC file!";
+    exit(1);
 }
 
 size_t get_rela_vaddr(const std::string& content, const std::string& sec_name, Elf64_Rela r) {
@@ -211,7 +198,7 @@ std::vector<rela_descr> get_rela_entries(const std::string& exec_content, const 
             if (sec_name == ".eh_frame") {
                 continue;
             }
-            sec_name.insert(0, "MOVED");
+            sec_name.insert(0, PREFIX);
 
             bool from_rel = false;
             for (auto pair : rel_symbols) {
@@ -219,7 +206,7 @@ std::vector<rela_descr> get_rela_entries(const std::string& exec_content, const 
                     // here we go, simply we must change section name to new one
                     result_sym = rel_sym;
                     std::string sym_sec_name = SE::get_shdrs(rel_content)[rel_sym.first.st_shndx].second;
-                    sym_sec_name.insert(0, "MOVED");
+                    sym_sec_name.insert(0, PREFIX);
                     cout << "new sec_name: " << sym_sec_name << "\n";
 
                     size_t rel_offset = rel_sym.first.st_value; // in ET_REL st_value field keeps offset from `st_shndx` begin
@@ -235,7 +222,8 @@ std::vector<rela_descr> get_rela_entries(const std::string& exec_content, const 
                 result_sym = find_corresponding_symbol(exec_content, rel_sym);
             }
 
-
+            cout << "szukalem relokacji dla sekcji " << sec_name << ", off: " << r.r_offset << "\n";
+            cout << "\nznalazlem dla adresu " << get_rela_vaddr(exec_content, sec_name, r) << "\n";
             rela_descr res_rela {
                 .hdr = r,
                 .symbol = result_sym,
@@ -245,6 +233,18 @@ std::vector<rela_descr> get_rela_entries(const std::string& exec_content, const 
         }
     }
     return res;
+}
+
+void set_base(const std::string exec_content) {
+    auto phdrs = get_phs(exec_content);
+    size_t max = 0;
+    for (auto& p : phdrs) {
+        if (p.p_type == PT_LOAD) {
+            max = std::max(max, p.p_paddr - (p.p_paddr % 0x200000));
+        }
+    }
+    
+    BASE_REL = max + 0x200000;
 }
 
 
@@ -258,16 +258,10 @@ void execute_relocation(std::string& content, size_t rel_val, size_t offset, boo
     std::stringstream ss;
 
     size_t num = rel64 ? 8 : 4;
-    // rel_val = rel64 ? rel_val : (int32_t) rel_val;
     size_t s0 = content.size();
 
     ss << content.substr(0, offset);
     ss.write((const char *) &rel_val, num);
-
-    // cout << "RELVAL: " << hex << rel_val << "\n";
-    // auto __s = ss.str();
-    // cout << hex <<  "wypisano bajty: " << __s.substr(__s.size() - 4, std::string::npos) << "\n";
-    
     ss << content.substr(offset + num, std::string::npos);
 
     content.clear();
@@ -318,17 +312,40 @@ void overwrite_start(std::string& exec_content, const std::string& rel_content) 
     auto rel_symbols = get_symbols(rel_content);
     Elf64_Ehdr ehdr = get_elf_header(exec_content);
 
+    std::string new_start_section;
+    size_t rel_off;
+
+    bool is_start = false;
     for (const auto& pair : rel_symbols) {
         if (pair.second == "_start") {
-            size_t moved_text_vaddr = SE::get_section_vaddr(exec_content, "MOVED.text");
-            ehdr.e_entry = moved_text_vaddr + pair.first.st_value;
+            new_start_section = PREFIX + SE::get_shdrs(rel_content)[pair.first.st_shndx].second;
+            size_t moved_text_vaddr = SE::get_section_vaddr(exec_content, new_start_section);
+            rel_off = pair.first.st_value;
+            ehdr.e_entry = moved_text_vaddr + rel_off;
             exec_content.replace(0, sizeof(Elf64_Ehdr), (const char *) &ehdr, sizeof(Elf64_Ehdr));
-            return;
+            is_start = true;
         }
     }
-    std::cerr <<  "Lack of _start symbol in ET_REL! e_entry not overridden";
+    if (!is_start) {
+        std::cerr <<  "Lack of _start symbol in ET_REL! e_entry not overridden"; // OTOODOROROOORORO
+        return;
+    }
+    
+    auto exec_symbols = get_symbols(exec_content);
+    for (size_t i = 0; i < exec_symbols.size(); i++) {
+        if (exec_symbols[i].second == "_start") {
+            Elf64_Sym s = exec_symbols[i].first; // we need to change it's offset and shndx
+            size_t idx = SE::get_section_idx(exec_content, new_start_section);
+            cout << "new start section: " << new_start_section << "\n";
+            s.st_shndx = idx;
+            s.st_value = rel_off + SE::get_section_vaddr(exec_content, new_start_section);
+            Elf64_Shdr symtab = SE::find_section(".symtab", SE::get_shdrs(exec_content));
+        
+            cout << "replacing SYMBOL _Start at " << symtab.sh_offset + i * sizeof(Elf64_Sym) << "\n";
+            exec_content.replace(symtab.sh_offset + i * sizeof(Elf64_Sym), sizeof(Elf64_Sym), (const char *) &s, sizeof(Elf64_Sym));
+        }
+    }
 }
-
 
 
 int main(int argc, char** argv) {
@@ -357,6 +374,7 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
+    set_base(exec_content);
 
     std::vector<section_descr> section_hdrs = SE::get_shdrs(rel_content);
 
@@ -377,7 +395,7 @@ int main(int argc, char** argv) {
         moved_sections_contents.push_back(SE::get_section_content(rel_content, name));
     }
 
-    auto name_positions = SE::add_moved_section_names(exec_content, sections_to_move);
+    auto name_positions = SE::add_moved_section_names(exec_content, sections_to_move, PREFIX);
 
     SE::append_sections(exec_content, sections_to_move, moved_sections_contents, name_positions);
 

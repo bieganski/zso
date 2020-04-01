@@ -291,7 +291,7 @@ void SectionEditor::append_sections(std::string& content,
 
     for (size_t i = 0; i < new_sections.size(); i++) {
         Elf64_Shdr& hdr = new_sections[i].first;
-        hdr.sh_addr = SE::MOVE_BASE + off + i * 0x200000;
+        hdr.sh_addr = BASE_REL + off + i * 0x200000;
         hdr.sh_offset = off;
         hdr.sh_name = names_positions[i];
 
@@ -335,7 +335,7 @@ inline size_t get_section_offset(const std::string& content, const std::string s
  * ".shstrtab" is the last section, after it is only section header table.
  *  Returns vector of positions relevant to .shstrtab offset.
  */
-std::vector<size_t> SectionEditor::add_moved_section_names(std::string& content, std::vector<section_descr>& sections_to_move) {
+std::vector<size_t> SectionEditor::add_moved_section_names(std::string& content, std::vector<section_descr>& sections_to_move, const std::string& prefix) {
     std::vector<size_t> res;
 
     size_t s0 = content.size();
@@ -360,7 +360,6 @@ std::vector<size_t> SectionEditor::add_moved_section_names(std::string& content,
     for (auto& pair : sections_to_move) {
         std::string& name = pair.second;
 
-        const std::string prefix = "MOVED";
         std::string new_name = prefix + name;
         
         res.push_back(content.size() - shstrtab_off);

@@ -8,6 +8,7 @@
 
 using section_descr = std::pair<Elf64_Shdr, std::string> ;
 
+extern size_t BASE_REL;
 
 // `content` argument always means elf file content 
 class SectionEditor {
@@ -15,8 +16,6 @@ private:
     static std::string get_section_content(const std::string& content, Elf64_Shdr section_hdr);
 
 public:
-
-    const static size_t MOVE_BASE = 0x800000;
 
     static void print_section_header(Elf64_Shdr hdr) {
         std::cout << std::hex << "offset: " << hdr.sh_offset << "\nSize: " << hdr.sh_size << "\n";
@@ -82,7 +81,7 @@ public:
     /**
      * Returns vector of positions of inserted section names.
      */
-    static std::vector<size_t> add_moved_section_names(std::string&, std::vector<section_descr>&);
+    static std::vector<size_t> add_moved_section_names(std::string&, std::vector<section_descr>&, const std::string& prefix);
 
     static void replace_sec_hdr_tbl(std::string& content, std::vector<section_descr>& new_tbl);
 
