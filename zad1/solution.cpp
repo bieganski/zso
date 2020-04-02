@@ -117,6 +117,7 @@ size_t vaddr2off(const std::string& exec_content, size_t vaddr) {
     }
     std::stringstream err;
     std::cerr << "Internal error: Adress " << hex << vaddr <<  " isn't mapped into memory";
+    throw "Internal error: vaddr2off";
 }
 
 std::vector<symbol_descr> get_symbols(const std::string& content) {
