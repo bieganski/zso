@@ -330,7 +330,6 @@ void overwrite_start(std::string& exec_content, const std::string& rel_content) 
             s.st_value = rel_off + SE::get_section_vaddr(exec_content, new_start_section);
             Elf64_Shdr symtab = SE::find_section(".symtab", SE::get_shdrs(exec_content));
         
-            cout << "replacing SYMBOL _Start at " << symtab.sh_offset + i * sizeof(Elf64_Sym) << "\n";
             exec_content.replace(symtab.sh_offset + i * sizeof(Elf64_Sym), sizeof(Elf64_Sym), (const char *) &s, sizeof(Elf64_Sym));
         }
     }
