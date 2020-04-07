@@ -147,14 +147,22 @@ void SectionEditor::append_sections_help(std::string& content,
     assert(content.size() == e_hdr.e_shoff + e_hdr.e_shnum * e_hdr.e_shentsize);
 
     auto actual_headers = SE::get_shdrs(content);
-    
     content.erase(e_hdr.e_shoff, e_hdr.e_shnum * e_hdr.e_shentsize);
 
     assert(content.size() == e_hdr.e_shoff);
     size_t pos0 = content.size();
     
+
+
+    std::vector<size_t> paddings;
     for (size_t i = 0; i < new_sections.size(); i++) {
+        size_t _pos0 = content.size();
+        size_t pad = section_insertion_addr(content, new_sections[i].first);
+        paddings.push_back(pad);
+
+        content.append(pad, '\0');
         content.append(new_sections_contents[i]);
+        assert(_pos0 + pad + new_sections_contents[i].size() == content.size());
     }
 
     e_hdr.e_shnum += new_sections.size();
@@ -168,6 +176,9 @@ void SectionEditor::append_sections_help(std::string& content,
 
     for (size_t i = 0; i < new_sections.size(); i++) {
         Elf64_Shdr& hdr = new_sections[i].first;
+
+        off += paddings[i];
+
         hdr.sh_addr = BASE_REL + off + i * 0x200000;
         hdr.sh_offset = off;
         hdr.sh_name = 0; // that value will be fullfilled by `add_moved_section_names` function
@@ -189,7 +200,6 @@ void SectionEditor::dump(const std::string& content, const std::string& out_file
     out.open(out_file_path);
     out << content;
     out.close();
-    // chmod(out_file_path.data(), 755);
     std::string s("chmod 755 ");
     s.append(out_file_path);
     system(s.data());
@@ -206,22 +216,19 @@ inline size_t get_section_offset(const std::string& content, const std::string s
     return SE::find_section(sec_name, SE::get_shdrs(content)).sh_offset;
 }
 
-
-/**
- * ASSUMPTION:
- * ".shstrtab" is the last section, after it is only section header table.
- *  Returns vector of positions relevant to .shstrtab offset.
- */
-
-
-size_t section_insertion_addr(const std::string& content, Elf64_Shdr to_be_appended) {
+size_t SE::section_insertion_padding(const std::string& content, Elf64_Shdr to_be_appended) {
     const size_t align = to_be_appended.sh_addralign;
-    size_t proper_addr = content.size();
+    size_t addr = content.size();
     for(uint i = 0; i <= align; i++) {
-        if (proper_addr % align ==0)
-            return proper_addr;
-        proper_addr++;
+        if (addr % align == 0)
+            return addr - content.size();
+        addr++;
     }
+    assert(false);
+}
+
+size_t SE::section_insertion_addr(const std::string& content, Elf64_Shdr to_be_appended) {
+    return content.size() + section_insertion_padding(content, to_be_appended);
 }
 
 void SectionEditor::add_moved_section_names(std::string& content, 
@@ -237,7 +244,7 @@ void SectionEditor::add_moved_section_names(std::string& content,
 
     std::string shstrtab_content = content.substr(shstrtab_off, shstrtab_size);
 
-    content.replace(shstrtab_off, shstrtab_size, shstrtab_size, '\0'); // we want use it anymore
+    content.replace(shstrtab_off, shstrtab_size, shstrtab_size, '\0'); // we won't use it anymore
 
     size_t shstrtab_new_offset = section_insertion_addr(content, shstrtab_hdr);
     content.append(shstrtab_new_offset - content.size(), '\0');

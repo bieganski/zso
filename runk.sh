@@ -16,6 +16,5 @@ qemu-system-x86_64 \
 -device virtio-9p-pci,fsdev=hshare,mount_tag=hshare \
 -chardev stdio,id=cons,signal=off -device virtio-serial-pci \
 -device virtconsole,chardev=cons \
--soundhw hda
-
-# \ -usb -device usb-mouse
+-soundhw hda \
+-usb -device usb-mouse

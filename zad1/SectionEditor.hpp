@@ -19,6 +19,11 @@ private:
     static void append_sections_help(std::string& content, 
                                     std::vector<section_descr>& new_sections, 
                                     const std::vector<std::string>& new_sections_contents);
+
+    static size_t section_insertion_addr(const std::string& content, Elf64_Shdr to_be_appended);
+
+    static size_t section_insertion_padding(const std::string& content, Elf64_Shdr to_be_appended);
+    
 public:
 
     static void print_section_header(Elf64_Shdr hdr) {
