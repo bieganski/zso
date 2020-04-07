@@ -415,18 +415,17 @@ int main(int argc, char** argv) {
         .p_align = (Elf64_Xword) 1,
     };
 
-    // according to linker code, first PT_LOAD segment must containt 
-    // ELF header and program headers
-    begin_buf.append((const char*) &first_load, sizeof(Elf64_Phdr));
-
+    int phdr_pos = -1, _i = 0;
     for (auto& ph : phdrs) {
         if (ph.p_type == PT_PHDR) {
+            phdr_pos = _i;
             size_t addr = EXEC_BASE - whole_size + exec_hdr.e_phoff;
             ph.p_paddr = addr;
             ph.p_vaddr = addr;
         } else {
             ph.p_offset += whole_size;
-        }   
+        }
+        _i++;
     }
 
     // generate new program headers and add offsets to existing program headers table
@@ -451,8 +450,17 @@ int main(int argc, char** argv) {
 
     phdrs.insert(phdrs.end(), new_phdrs.begin(), new_phdrs.end());
 
-    for (size_t i = 0; i < phdrs.size(); i++) {
-        size_t addr = exec_hdr.e_ehsize + i * exec_hdr.e_phentsize;
+    if (phdr_pos != -1) {
+        for(size_t i = 0; i <= phdr_pos; i++) {
+            size_t addr = exec_hdr.e_ehsize + i * exec_hdr.e_phentsize;
+            begin_buf.append((const char*) &phdrs[i], sizeof(Elf64_Phdr));
+        }
+    }
+
+    begin_buf.append((const char*) &first_load, sizeof(Elf64_Phdr));
+
+    for (size_t i = phdr_pos + 1; i < phdrs.size(); i++) {
+        size_t addr = exec_hdr.e_ehsize + (i + 1) * exec_hdr.e_phentsize;
         begin_buf.append((const char*) &phdrs[i], sizeof(Elf64_Phdr));
     }
 
