@@ -12,7 +12,8 @@
 typedef SectionEditor SE;
 
 void integrity_check(Elf64_Ehdr h) {
-    if(h.e_ident[1] != 'E' ||
+    if(h.e_ident[0] != 0x7f ||
+       h.e_ident[1] != 'E' ||
        h.e_ident[2] != 'L' ||
        h.e_ident[3] != 'F') {
         throw "Given file is not in ELF format!";
